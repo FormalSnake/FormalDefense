@@ -297,7 +297,13 @@ int main(void)
 
     // --- Menu state ---
     Map menuMap;
-    MapInit(&menuMap);
+    if (mapRegistry.count > 0) {
+        int menuMapIdx = GetRandomValue(0, mapRegistry.count - 1);
+        if (!MapLoad(&menuMap, mapRegistry.paths[menuMapIdx]))
+            MapInit(&menuMap);
+    } else {
+        MapInit(&menuMap);
+    }
     CameraController menuCamCtrl;
     CameraControllerInit(&menuCamCtrl);
     menuCamCtrl.distance = 22.0f;
