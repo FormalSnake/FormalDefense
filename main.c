@@ -8,6 +8,7 @@
 #include "lobby.h"
 #include "chat.h"
 #include <math.h>
+#include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
 
@@ -156,9 +157,13 @@ static void DrawRangeCircle(Vector3 center, float radius, Color color)
     }
 }
 
-// --- Skybox ---
+// --- Skybox (pre-baked mesh) ---
 
-static void DrawSkybox(Camera3D camera)
+static Mesh skyboxMesh = {0};
+static Material skyboxMaterial = {0};
+static bool skyboxReady = false;
+
+static void BuildSkyboxMesh(void)
 {
     int slices = 16;
     int stacks = 8;
@@ -167,17 +172,16 @@ static void DrawSkybox(Camera3D camera)
     Color topColor = { 25, 50, 120, 255 };
     Color botColor = { 135, 190, 235, 255 };
 
-    rlDisableBackfaceCulling();
-    rlDisableDepthMask();
+    int triCount = slices * stacks * 2;
+    int vertCount = triCount * 3;
+    float *verts = malloc(vertCount * 3 * sizeof(float));
+    unsigned char *cols = malloc(vertCount * 4 * sizeof(unsigned char));
+    int vi = 0;
 
-    rlPushMatrix();
-    rlTranslatef(camera.position.x, camera.position.y, camera.position.z);
-
-    rlBegin(RL_TRIANGLES);
     for (int i = 0; i < stacks; i++) {
         float phi0 = PI * (float)i / stacks;
         float phi1 = PI * (float)(i + 1) / stacks;
-        float t0 = 1.0f - (float)i / stacks;       // 1 at top, 0 at bottom
+        float t0 = 1.0f - (float)i / stacks;
         float t1 = 1.0f - (float)(i + 1) / stacks;
 
         unsigned char r0 = (unsigned char)(botColor.r + t0 * (topColor.r - botColor.r));
@@ -194,58 +198,99 @@ static void DrawSkybox(Camera3D camera)
             float x00 = radius * sinf(phi0) * cosf(theta0);
             float y00 = radius * cosf(phi0);
             float z00 = radius * sinf(phi0) * sinf(theta0);
-
             float x10 = radius * sinf(phi1) * cosf(theta0);
             float y10 = radius * cosf(phi1);
             float z10 = radius * sinf(phi1) * sinf(theta0);
-
             float x01 = radius * sinf(phi0) * cosf(theta1);
             float y01 = radius * cosf(phi0);
             float z01 = radius * sinf(phi0) * sinf(theta1);
-
             float x11 = radius * sinf(phi1) * cosf(theta1);
             float y11 = radius * cosf(phi1);
             float z11 = radius * sinf(phi1) * sinf(theta1);
 
-            // Triangle 1: (00, 10, 11)
-            rlColor4ub(r0, g0, b0, 255);
-            rlVertex3f(x00, y00, z00);
-            rlColor4ub(r1, g1, b1, 255);
-            rlVertex3f(x10, y10, z10);
-            rlColor4ub(r1, g1, b1, 255);
-            rlVertex3f(x11, y11, z11);
+            #define SKY_VERT(px,py,pz,cr,cg,cb) do { \
+                verts[vi*3]=px; verts[vi*3+1]=py; verts[vi*3+2]=pz; \
+                cols[vi*4]=cr; cols[vi*4+1]=cg; cols[vi*4+2]=cb; cols[vi*4+3]=255; \
+                vi++; \
+            } while(0)
 
-            // Triangle 2: (00, 11, 01)
-            rlColor4ub(r0, g0, b0, 255);
-            rlVertex3f(x00, y00, z00);
-            rlColor4ub(r1, g1, b1, 255);
-            rlVertex3f(x11, y11, z11);
-            rlColor4ub(r0, g0, b0, 255);
-            rlVertex3f(x01, y01, z01);
+            SKY_VERT(x00,y00,z00, r0,g0,b0);
+            SKY_VERT(x10,y10,z10, r1,g1,b1);
+            SKY_VERT(x11,y11,z11, r1,g1,b1);
+
+            SKY_VERT(x00,y00,z00, r0,g0,b0);
+            SKY_VERT(x11,y11,z11, r1,g1,b1);
+            SKY_VERT(x01,y01,z01, r0,g0,b0);
+
+            #undef SKY_VERT
         }
     }
-    rlEnd();
 
-    rlPopMatrix();
+    skyboxMesh = (Mesh){0};
+    skyboxMesh.vertexCount = vertCount;
+    skyboxMesh.triangleCount = triCount;
+    skyboxMesh.vertices = verts;
+    skyboxMesh.colors = cols;
+    UploadMesh(&skyboxMesh, false);
+
+    skyboxMaterial = LoadMaterialDefault();
+    skyboxReady = true;
+}
+
+static void DrawSkybox(Camera3D camera)
+{
+    if (!skyboxReady) return;
+
+    rlDisableBackfaceCulling();
+    rlDisableDepthMask();
+
+    Matrix transform = MatrixTranslate(camera.position.x, camera.position.y, camera.position.z);
+    DrawMesh(skyboxMesh, skyboxMaterial, transform);
 
     rlEnableBackfaceCulling();
     rlEnableDepthMask();
 }
 
-// --- Blob Shadow ---
+// --- Blob Shadow (batched) ---
 
-static void DrawBlobShadow(Vector3 center, float radius, float elevationY)
+// Pre-compute sin/cos table for blob shadow segments
+static float blobShadowCos[BLOB_SHADOW_SEGMENTS + 1];
+static float blobShadowSin[BLOB_SHADOW_SEGMENTS + 1];
+static bool blobShadowTableReady = false;
+
+static void InitBlobShadowTable(void)
 {
-    float y = elevationY + 0.01f;
-    Color col = (Color){ 0, 0, 0, 80 };
+    for (int i = 0; i <= BLOB_SHADOW_SEGMENTS; i++) {
+        float a = (float)i / BLOB_SHADOW_SEGMENTS * 2.0f * PI;
+        blobShadowCos[i] = cosf(a);
+        blobShadowSin[i] = sinf(a);
+    }
+    blobShadowTableReady = true;
+}
+
+typedef struct {
+    float x, z;
+    float radius;
+    float elevY;
+} BlobShadowEntry;
+
+#define MAX_BLOB_SHADOWS (MAX_TOWERS + MAX_ENEMIES)
+
+static void DrawBlobShadowsBatched(const BlobShadowEntry *entries, int count)
+{
+    if (count <= 0) return;
     rlBegin(RL_TRIANGLES);
-    for (int i = 0; i < BLOB_SHADOW_SEGMENTS; i++) {
-        float a1 = (float)i / BLOB_SHADOW_SEGMENTS * 2.0f * PI;
-        float a2 = (float)(i + 1) / BLOB_SHADOW_SEGMENTS * 2.0f * PI;
-        rlColor4ub(col.r, col.g, col.b, col.a);
-        rlVertex3f(center.x, y, center.z);
-        rlVertex3f(center.x + cosf(a1) * radius, y, center.z + sinf(a1) * radius);
-        rlVertex3f(center.x + cosf(a2) * radius, y, center.z + sinf(a2) * radius);
+    rlColor4ub(0, 0, 0, 80);
+    for (int e = 0; e < count; e++) {
+        float cx = entries[e].x;
+        float cz = entries[e].z;
+        float r = entries[e].radius;
+        float y = entries[e].elevY + 0.01f;
+        for (int i = 0; i < BLOB_SHADOW_SEGMENTS; i++) {
+            rlVertex3f(cx, y, cz);
+            rlVertex3f(cx + blobShadowCos[i] * r, y, cz + blobShadowSin[i] * r);
+            rlVertex3f(cx + blobShadowCos[i+1] * r, y, cz + blobShadowSin[i+1] * r);
+        }
     }
     rlEnd();
 }
@@ -315,6 +360,18 @@ int main(void)
 
     Scene currentScene = SCENE_MENU;
 
+    // --- Pre-baked meshes ---
+    BuildSkyboxMesh();
+    InitBlobShadowTable();
+
+    Mesh sphereMesh = GenMeshSphere(1.0f, 8, 8);
+    Model sphereModel = LoadModelFromMesh(sphereMesh);
+    sphereModel.materials[0].shader = ps1Shader;
+
+    MapMesh menuMapMesh = {0};
+    MapMesh gameMapMesh = {0};
+    int lastTowerCount = 0;  // Track tower count to detect network-placed towers
+
     // --- Multiplayer state ---
     NetContext netCtx;
     NetContextInit(&netCtx);
@@ -339,6 +396,7 @@ int main(void)
     } else {
         MapInit(&menuMap);
     }
+    MapBuildMesh(&menuMapMesh, &menuMap, ps1Shader);
     CameraController menuCamCtrl;
     CameraControllerInit(&menuCamCtrl);
     menuCamCtrl.distance = 22.0f;
@@ -347,6 +405,7 @@ int main(void)
 
     Map map;
     MapInit(&map);
+    MapBuildMesh(&gameMapMesh, &map, ps1Shader);
 
     GameState gs;
     GameStateInit(&gs);
@@ -415,9 +474,7 @@ int main(void)
             ClearBackground((Color){ 30, 30, 35, 255 });
             BeginMode3D(menuCamera);
                 DrawSkybox(menuCamera);
-                BeginShaderMode(ps1Shader);
-                    MapDraw(&menuMap);
-                EndShaderMode();
+                MapDrawMesh(&menuMapMesh);
             EndMode3D();
             EndTextureMode();
 
@@ -582,6 +639,7 @@ int main(void)
                     // Single-player: load map and start game
                     if (!MapLoad(&map, mapRegistry.paths[selectedMapIdx]))
                         MapInit(&map);
+                    MapBuildMesh(&gameMapMesh, &map, ps1Shader);
                     GameStateInit(&gs);
                     memset(enemies, 0, sizeof(enemies));
                     memset(towers, 0, sizeof(towers));
@@ -642,6 +700,7 @@ int main(void)
                         MapInit(&map);
                     GameStateInitMultiplayer(&gs, netCtx.playerCount);
                 }
+                MapBuildMesh(&gameMapMesh, &map, ps1Shader);
                 memset(enemies, 0, sizeof(enemies));
                 memset(towers, 0, sizeof(towers));
                 memset(projectiles, 0, sizeof(projectiles));
@@ -755,6 +814,7 @@ int main(void)
                         TowerPlace(towers, MAX_TOWERS, (TowerType)selectedTowerType, mouseGrid,
                                   (uint8_t)lpi, &gs, &map);
                         map.tiles[mouseGrid.z][mouseGrid.x] = TILE_TOWER;
+                        MapBuildMesh(&gameMapMesh, &map, ps1Shader);
                     }
                 }
             } else if (selectedTowerType < 0 && mouseOnGround) {
@@ -786,6 +846,7 @@ int main(void)
                 NetContextInit(&netCtx);
                 localPaused = false;
                 MapInit(&menuMap);
+                MapBuildMesh(&menuMapMesh, &menuMap, ps1Shader);
                 menuCamCtrl.yaw = 0.0f;
                 currentScene = SCENE_MENU;
                 break; // exit SCENE_GAME case
@@ -814,6 +875,17 @@ int main(void)
         if (selectedTowerIdx >= 0 && !towers[selectedTowerIdx].active)
             selectedTowerIdx = -1;
 
+        // Rebuild map mesh if towers were placed via network
+        {
+            int towerCount = 0;
+            for (int i = 0; i < MAX_TOWERS; i++)
+                if (towers[i].active) towerCount++;
+            if (towerCount != lastTowerCount) {
+                lastTowerCount = towerCount;
+                MapBuildMesh(&gameMapMesh, &map, ps1Shader);
+            }
+        }
+
         // =========================
         // DRAW — 3D to low-res render target
         // =========================
@@ -823,24 +895,31 @@ int main(void)
         BeginMode3D(camera);
             DrawSkybox(camera);
 
+            MapDrawMesh(&gameMapMesh);
+
             BeginShaderMode(ps1Shader);
-                MapDraw(&map);
-
-                // Blob shadows under towers
-                for (int i = 0; i < MAX_TOWERS; i++) {
-                    if (!towers[i].active) continue;
-                    Vector3 tp = towers[i].worldPos;
-                    float tElev = MapGetElevationY(&map, towers[i].gridPos.x, towers[i].gridPos.z);
-                    DrawBlobShadow((Vector3){ tp.x, 0.0f, tp.z }, 0.45f, tElev);
-                }
-
-                // Blob shadows under enemies
-                for (int i = 0; i < MAX_ENEMIES; i++) {
-                    if (!enemies[i].active) continue;
-                    Vector3 ep = enemies[i].worldPos;
-                    GridPos eg = MapWorldToGrid(ep);
-                    float eElev = MapGetElevationY(&map, eg.x, eg.z);
-                    DrawBlobShadow((Vector3){ ep.x, 0.0f, ep.z }, enemies[i].radius * 1.2f, eElev);
+                // Batched blob shadows
+                {
+                    BlobShadowEntry shadowEntries[MAX_BLOB_SHADOWS];
+                    int shadowCount = 0;
+                    for (int i = 0; i < MAX_TOWERS; i++) {
+                        if (!towers[i].active) continue;
+                        Vector3 tp = towers[i].worldPos;
+                        shadowEntries[shadowCount++] = (BlobShadowEntry){
+                            tp.x, tp.z, 0.45f,
+                            MapGetElevationY(&map, towers[i].gridPos.x, towers[i].gridPos.z)
+                        };
+                    }
+                    for (int i = 0; i < MAX_ENEMIES; i++) {
+                        if (!enemies[i].active) continue;
+                        Vector3 ep = enemies[i].worldPos;
+                        GridPos eg = MapWorldToGrid(ep);
+                        shadowEntries[shadowCount++] = (BlobShadowEntry){
+                            ep.x, ep.z, enemies[i].radius * 1.2f,
+                            MapGetElevationY(&map, eg.x, eg.z)
+                        };
+                    }
+                    DrawBlobShadowsBatched(shadowEntries, shadowCount);
                 }
 
                 // Grid hover highlight
@@ -872,8 +951,8 @@ int main(void)
                     DrawRangeCircle(rc, range, (Color){ 255, 255, 100, 150 });
                 }
 
-                EnemiesDraw(enemies, MAX_ENEMIES);
-                ProjectilesDraw(projectiles, MAX_PROJECTILES);
+                EnemiesDraw(enemies, MAX_ENEMIES, sphereModel);
+                ProjectilesDraw(projectiles, MAX_PROJECTILES, sphereModel);
             EndShaderMode();
         EndMode3D();
         EndTextureMode();
@@ -1153,6 +1232,7 @@ int main(void)
                         NetContextInit(&netCtx);
                     }
                     MapInit(&menuMap);
+                    MapBuildMesh(&menuMapMesh, &menuMap, ps1Shader);
                     menuCamCtrl.yaw = 0.0f;
                     currentScene = SCENE_MENU;
                 } else if (CheckCollisionPointRec(mouse, pQuitBtn)) {
@@ -1177,6 +1257,7 @@ int main(void)
                 }
             }
             if (!reloaded) MapInit(&map);
+            MapBuildMesh(&gameMapMesh, &map, ps1Shader);
             GameStateInit(&gs);
             memset(enemies, 0, sizeof(enemies));
             memset(towers, 0, sizeof(towers));
@@ -1198,6 +1279,7 @@ int main(void)
                     NetContextInit(&netCtx);
                 }
                 MapInit(&menuMap);
+                MapBuildMesh(&menuMapMesh, &menuMap, ps1Shader);
                 menuCamCtrl.yaw = 0.0f;
                 currentScene = SCENE_MENU;
             }
@@ -1211,6 +1293,10 @@ int main(void)
         NetContextDestroy(&netCtx);
         NetShutdown();
     }
+    MapFreeMesh(&menuMapMesh);
+    MapFreeMesh(&gameMapMesh);
+    if (skyboxReady) UnloadMesh(skyboxMesh);
+    UnloadModel(sphereModel);
     UnloadRenderTexture(renderTarget);
     UnloadShader(ps1Shader);
     CloseWindow();

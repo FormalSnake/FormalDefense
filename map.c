@@ -1,5 +1,6 @@
 #include "map.h"
 #include "raylib.h"
+#include "raymath.h"
 #include "rlgl.h"
 #include <stdio.h>
 #include <string.h>
@@ -455,6 +456,195 @@ static float TerrainNoise(float x, float z)
     float x2 = NoiseGrad(ab, xf, zf - 1) * (1 - u) + NoiseGrad(bb, xf - 1, zf - 1) * u;
 
     return (x1 * (1 - v) + x2 * v) * 0.08f;  // ~±0.08 amplitude
+}
+
+// --- Pre-baked Map Mesh ---
+
+// Max triangles: tile tops (300*2) + cliff faces (rough upper bound ~300*4*2) = ~3000
+#define MAP_MESH_MAX_TRIS 4096
+
+void MapBuildMesh(MapMesh *mm, const Map *map, Shader ps1Shader)
+{
+    if (mm->ready) MapFreeMesh(mm);
+
+    // Temporary buffers for vertex data
+    int maxVerts = MAP_MESH_MAX_TRIS * 3;
+    float *vertices = malloc(maxVerts * 3 * sizeof(float));
+    unsigned char *colors = malloc(maxVerts * 4 * sizeof(unsigned char));
+    int vertCount = 0;
+
+    #define EMIT_VERT(px, py, pz, cr, cg, cb, ca) do { \
+        int _i = vertCount * 3; \
+        vertices[_i+0] = (px); vertices[_i+1] = (py); vertices[_i+2] = (pz); \
+        int _ci = vertCount * 4; \
+        colors[_ci+0] = (cr); colors[_ci+1] = (cg); colors[_ci+2] = (cb); colors[_ci+3] = (ca); \
+        vertCount++; \
+    } while(0)
+
+    // Pass 1: Tile top faces
+    for (int z = 0; z < MAP_HEIGHT; z++) {
+        for (int x = 0; x < MAP_WIDTH; x++) {
+            Color base = TileBaseColor(map->tiles[z][x]);
+            float elev = map->elevation[z][x] * ELEVATION_HEIGHT;
+
+            float x0 = x * TILE_SIZE;
+            float x1 = x0 + TILE_SIZE;
+            float z0 = z * TILE_SIZE;
+            float z1 = z0 + TILE_SIZE;
+
+            float y00 = elev + TerrainNoise(x, z);
+            float y10 = elev + TerrainNoise(x + 1, z);
+            float y01 = elev + TerrainNoise(x, z + 1);
+            float y11 = elev + TerrainNoise(x + 1, z + 1);
+
+            Color c0 = PerturbColor(base, x, z, 0);
+            Color c1 = PerturbColor(base, x, z, 1);
+            Color c2 = PerturbColor(base, x, z, 2);
+            Color c3 = PerturbColor(base, x, z, 3);
+
+            // Triangle 1: (x0,z0), (x1,z1), (x1,z0)
+            EMIT_VERT(x0, y00, z0, c0.r, c0.g, c0.b, 255);
+            EMIT_VERT(x1, y11, z1, c3.r, c3.g, c3.b, 255);
+            EMIT_VERT(x1, y10, z0, c1.r, c1.g, c1.b, 255);
+
+            // Triangle 2: (x0,z0), (x0,z1), (x1,z1)
+            EMIT_VERT(x0, y00, z0, c0.r, c0.g, c0.b, 255);
+            EMIT_VERT(x0, y01, z1, c2.r, c2.g, c2.b, 255);
+            EMIT_VERT(x1, y11, z1, c3.r, c3.g, c3.b, 255);
+        }
+    }
+
+    // Pass 2: Cliff faces
+    for (int z = 0; z < MAP_HEIGHT; z++) {
+        for (int x = 0; x < MAP_WIDTH; x++) {
+            float elev = map->elevation[z][x] * ELEVATION_HEIGHT;
+            Color base = TileBaseColor(map->tiles[z][x]);
+            Color cliff = { (unsigned char)(base.r * 0.5f), (unsigned char)(base.g * 0.5f),
+                            (unsigned char)(base.b * 0.5f), 255 };
+
+            float x0 = x * TILE_SIZE;
+            float x1 = x0 + TILE_SIZE;
+            float z0 = z * TILE_SIZE;
+            float z1 = z0 + TILE_SIZE;
+
+            // Right neighbor (x+1)
+            float neighborElev;
+            if (x + 1 < MAP_WIDTH)
+                neighborElev = map->elevation[z][x + 1] * ELEVATION_HEIGHT;
+            else
+                neighborElev = 0.0f;
+
+            if (elev > neighborElev) {
+                EMIT_VERT(x1, elev, z0, cliff.r, cliff.g, cliff.b, 255);
+                EMIT_VERT(x1, neighborElev, z1, cliff.r, cliff.g, cliff.b, 255);
+                EMIT_VERT(x1, neighborElev, z0, cliff.r, cliff.g, cliff.b, 255);
+                EMIT_VERT(x1, elev, z0, cliff.r, cliff.g, cliff.b, 255);
+                EMIT_VERT(x1, elev, z1, cliff.r, cliff.g, cliff.b, 255);
+                EMIT_VERT(x1, neighborElev, z1, cliff.r, cliff.g, cliff.b, 255);
+            } else if (elev < neighborElev) {
+                Color nBase = (x + 1 < MAP_WIDTH) ? TileBaseColor(map->tiles[z][x + 1]) : base;
+                Color nCliff = { (unsigned char)(nBase.r * 0.5f), (unsigned char)(nBase.g * 0.5f),
+                                 (unsigned char)(nBase.b * 0.5f), 255 };
+                EMIT_VERT(x1, neighborElev, z0, nCliff.r, nCliff.g, nCliff.b, 255);
+                EMIT_VERT(x1, elev, z0, nCliff.r, nCliff.g, nCliff.b, 255);
+                EMIT_VERT(x1, elev, z1, nCliff.r, nCliff.g, nCliff.b, 255);
+                EMIT_VERT(x1, neighborElev, z0, nCliff.r, nCliff.g, nCliff.b, 255);
+                EMIT_VERT(x1, elev, z1, nCliff.r, nCliff.g, nCliff.b, 255);
+                EMIT_VERT(x1, neighborElev, z1, nCliff.r, nCliff.g, nCliff.b, 255);
+            }
+
+            // Bottom neighbor (z+1)
+            if (z + 1 < MAP_HEIGHT)
+                neighborElev = map->elevation[z + 1][x] * ELEVATION_HEIGHT;
+            else
+                neighborElev = 0.0f;
+
+            if (elev > neighborElev) {
+                EMIT_VERT(x0, elev, z1, cliff.r, cliff.g, cliff.b, 255);
+                EMIT_VERT(x0, neighborElev, z1, cliff.r, cliff.g, cliff.b, 255);
+                EMIT_VERT(x1, neighborElev, z1, cliff.r, cliff.g, cliff.b, 255);
+                EMIT_VERT(x0, elev, z1, cliff.r, cliff.g, cliff.b, 255);
+                EMIT_VERT(x1, neighborElev, z1, cliff.r, cliff.g, cliff.b, 255);
+                EMIT_VERT(x1, elev, z1, cliff.r, cliff.g, cliff.b, 255);
+            } else if (elev < neighborElev) {
+                Color nBase = (z + 1 < MAP_HEIGHT) ? TileBaseColor(map->tiles[z + 1][x]) : base;
+                Color nCliff = { (unsigned char)(nBase.r * 0.5f), (unsigned char)(nBase.g * 0.5f),
+                                 (unsigned char)(nBase.b * 0.5f), 255 };
+                EMIT_VERT(x0, neighborElev, z1, nCliff.r, nCliff.g, nCliff.b, 255);
+                EMIT_VERT(x1, elev, z1, nCliff.r, nCliff.g, nCliff.b, 255);
+                EMIT_VERT(x0, elev, z1, nCliff.r, nCliff.g, nCliff.b, 255);
+                EMIT_VERT(x0, neighborElev, z1, nCliff.r, nCliff.g, nCliff.b, 255);
+                EMIT_VERT(x1, neighborElev, z1, nCliff.r, nCliff.g, nCliff.b, 255);
+                EMIT_VERT(x1, elev, z1, nCliff.r, nCliff.g, nCliff.b, 255);
+            }
+
+            // Left edge (x=0)
+            if (x == 0 && elev > 0.0f) {
+                EMIT_VERT(x0, elev, z1, cliff.r, cliff.g, cliff.b, 255);
+                EMIT_VERT(x0, 0.0f, z0, cliff.r, cliff.g, cliff.b, 255);
+                EMIT_VERT(x0, 0.0f, z1, cliff.r, cliff.g, cliff.b, 255);
+                EMIT_VERT(x0, elev, z1, cliff.r, cliff.g, cliff.b, 255);
+                EMIT_VERT(x0, elev, z0, cliff.r, cliff.g, cliff.b, 255);
+                EMIT_VERT(x0, 0.0f, z0, cliff.r, cliff.g, cliff.b, 255);
+            }
+
+            // Top edge (z=0)
+            if (z == 0 && elev > 0.0f) {
+                EMIT_VERT(x0, elev, z0, cliff.r, cliff.g, cliff.b, 255);
+                EMIT_VERT(x1, 0.0f, z0, cliff.r, cliff.g, cliff.b, 255);
+                EMIT_VERT(x0, 0.0f, z0, cliff.r, cliff.g, cliff.b, 255);
+                EMIT_VERT(x0, elev, z0, cliff.r, cliff.g, cliff.b, 255);
+                EMIT_VERT(x1, elev, z0, cliff.r, cliff.g, cliff.b, 255);
+                EMIT_VERT(x1, 0.0f, z0, cliff.r, cliff.g, cliff.b, 255);
+            }
+        }
+    }
+
+    #undef EMIT_VERT
+
+    // Build Raylib Mesh
+    mm->mesh = (Mesh){0};
+    mm->mesh.vertexCount = vertCount;
+    mm->mesh.triangleCount = vertCount / 3;
+    mm->mesh.vertices = vertices;
+    mm->mesh.colors = colors;
+
+    // Generate normals for lighting
+    mm->mesh.normals = malloc(vertCount * 3 * sizeof(float));
+    for (int t = 0; t < mm->mesh.triangleCount; t++) {
+        int i0 = t * 3;
+        Vector3 v0 = { vertices[i0*3], vertices[i0*3+1], vertices[i0*3+2] };
+        Vector3 v1 = { vertices[(i0+1)*3], vertices[(i0+1)*3+1], vertices[(i0+1)*3+2] };
+        Vector3 v2 = { vertices[(i0+2)*3], vertices[(i0+2)*3+1], vertices[(i0+2)*3+2] };
+        Vector3 edge1 = Vector3Subtract(v1, v0);
+        Vector3 edge2 = Vector3Subtract(v2, v0);
+        Vector3 n = Vector3Normalize(Vector3CrossProduct(edge1, edge2));
+        for (int k = 0; k < 3; k++) {
+            mm->mesh.normals[(i0+k)*3+0] = n.x;
+            mm->mesh.normals[(i0+k)*3+1] = n.y;
+            mm->mesh.normals[(i0+k)*3+2] = n.z;
+        }
+    }
+
+    UploadMesh(&mm->mesh, false);
+
+    // Setup material with PS1 shader
+    mm->material = LoadMaterialDefault();
+    mm->material.shader = ps1Shader;
+    mm->ready = true;
+}
+
+void MapDrawMesh(const MapMesh *mm)
+{
+    if (!mm->ready) return;
+    DrawMesh(mm->mesh, mm->material, MatrixIdentity());
+}
+
+void MapFreeMesh(MapMesh *mm)
+{
+    if (!mm->ready) return;
+    UnloadMesh(mm->mesh);
+    mm->ready = false;
 }
 
 void MapDraw(const Map *map)

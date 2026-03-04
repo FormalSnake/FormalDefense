@@ -49,6 +49,18 @@ GridPos MapWorldToGrid(Vector3 worldPos);
 bool MapCanPlaceTower(const Map *map, GridPos pos);
 void MapDraw(const Map *map);
 
+// --- Pre-baked Map Mesh (GPU-cached geometry) ---
+
+typedef struct {
+    Mesh mesh;
+    Material material;
+    bool ready;
+} MapMesh;
+
+void MapBuildMesh(MapMesh *mm, const Map *map, Shader ps1Shader);
+void MapDrawMesh(const MapMesh *mm);
+void MapFreeMesh(MapMesh *mm);
+
 bool MapLoad(Map *map, const char *filePath);
 void MapSave(const Map *map, const char *filePath);
 bool MapLoadFromBuffer(Map *map, const char *data, int len);

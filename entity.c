@@ -175,11 +175,13 @@ void EnemiesUpdate(Enemy enemies[], int maxEnemies, const Map *map, GameState *g
     }
 }
 
-void EnemiesDraw(const Enemy enemies[], int maxEnemies)
+void EnemiesDraw(const Enemy enemies[], int maxEnemies, Model sphereModel)
 {
     for (int i = 0; i < maxEnemies; i++) {
         if (!enemies[i].active) continue;
-        DrawSphere(enemies[i].worldPos, enemies[i].radius, enemies[i].color);
+        const Enemy *e = &enemies[i];
+        sphereModel.materials[0].maps[MATERIAL_MAP_DIFFUSE].color = e->color;
+        DrawModel(sphereModel, e->worldPos, e->radius, WHITE);
     }
 }
 
@@ -382,10 +384,11 @@ void ProjectilesUpdate(Projectile projectiles[], int maxProjectiles,
     }
 }
 
-void ProjectilesDraw(const Projectile projectiles[], int maxProjectiles)
+void ProjectilesDraw(const Projectile projectiles[], int maxProjectiles, Model sphereModel)
 {
     for (int i = 0; i < maxProjectiles; i++) {
         if (!projectiles[i].active) continue;
-        DrawSphere(projectiles[i].position, 0.1f, projectiles[i].color);
+        sphereModel.materials[0].maps[MATERIAL_MAP_DIFFUSE].color = projectiles[i].color;
+        DrawModel(sphereModel, projectiles[i].position, 0.1f, WHITE);
     }
 }
