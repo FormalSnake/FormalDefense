@@ -183,7 +183,7 @@ FdRenderTarget *FdRenderTargetCreate(int w, int h) {
     cd.usage.immutable = false;
     cd.width = w;
     cd.height = h;
-    cd.pixel_format = SG_PIXELFORMAT_BGRA8;
+    cd.pixel_format = SG_PIXELFORMAT_RGBA8;
     cd.label = "rt-color";
     rt->color = sg_make_image(&cd);
 
@@ -192,7 +192,7 @@ FdRenderTarget *FdRenderTargetCreate(int w, int h) {
     dd.usage.immutable = false;
     dd.width = w;
     dd.height = h;
-    dd.pixel_format = SG_PIXELFORMAT_DEPTH_STENCIL;
+    dd.pixel_format = SG_PIXELFORMAT_DEPTH;
     dd.label = "rt-depth";
     rt->depth = sg_make_image(&dd);
 
