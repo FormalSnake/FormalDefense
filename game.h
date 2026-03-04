@@ -3,6 +3,7 @@
 
 #include "map.h"
 #include <stdbool.h>
+#include <stdint.h>
 
 typedef enum {
     PHASE_PLAYING,
@@ -28,7 +29,7 @@ typedef struct {
 #define MAX_WAVES 10
 
 struct GameState {
-    int gold;
+    int gold;              // Legacy single-player gold (alias for playerGold[0])
     int lives;
     int currentWave;
     GamePhase phase;
@@ -39,11 +40,21 @@ struct GameState {
     int totalSpawned;
     int totalToSpawn;
     bool waveActive;
+
+    // Multiplayer fields
+    int playerGold[4];
+    int playerCount;
+    float hpMultiplier;
+    float countMultiplier;
+    int goldPerKill;
+    uint16_t nextEntitySeq;
 };
 
 extern const WaveConfig WAVE_CONFIGS[MAX_WAVES];
 
 void GameStateInit(struct GameState *gs);
+void GameStateInitMultiplayer(struct GameState *gs, int playerCount);
+
 // Forward declare Enemy (defined in entity.h)
 typedef struct Enemy_ Enemy_;
 void GameUpdateWave(struct GameState *gs, void *enemies, int maxEnemies, const Map *map, float dt);

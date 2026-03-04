@@ -4,6 +4,32 @@
 #include <math.h>
 #include <string.h>
 
+// --- Entity ID ---
+
+EntityID EntityIDMake(uint16_t typeBits, uint16_t seq)
+{
+    return typeBits | (seq & ENTITY_SEQ_MASK);
+}
+
+uint16_t EntityIDType(EntityID id)
+{
+    return id & ~ENTITY_SEQ_MASK;
+}
+
+uint16_t EntityIDSeq(EntityID id)
+{
+    return id & ENTITY_SEQ_MASK;
+}
+
+// --- Player Colors ---
+
+const Color PLAYER_COLORS[MAX_PLAYERS] = {
+    { 100, 200, 255, 255 },  // Blue
+    { 255, 100, 100, 255 },  // Red
+    { 100, 255, 100, 255 },  // Green
+    { 255, 200, 50, 255 },   // Yellow
+};
+
 // --- Enemy Config ---
 
 const EnemyConfig ENEMY_CONFIGS[ENEMY_TYPE_COUNT] = {
@@ -40,18 +66,43 @@ const TowerConfig TOWER_CONFIGS[TOWER_TYPE_COUNT][TOWER_MAX_LEVEL] = {
 
 const char *TOWER_NAMES[TOWER_TYPE_COUNT] = { "Cannon", "MG", "Sniper", "Slow" };
 
+// --- Find by ID ---
+
+Enemy *EnemyFindByID(Enemy enemies[], int maxEnemies, EntityID id)
+{
+    if (id == ENTITY_ID_NONE) return NULL;
+    for (int i = 0; i < maxEnemies; i++) {
+        if (enemies[i].active && enemies[i].id == id)
+            return &enemies[i];
+    }
+    return NULL;
+}
+
+Tower *TowerFindByID(Tower towers[], int maxTowers, EntityID id)
+{
+    if (id == ENTITY_ID_NONE) return NULL;
+    for (int i = 0; i < maxTowers; i++) {
+        if (towers[i].active && towers[i].id == id)
+            return &towers[i];
+    }
+    return NULL;
+}
+
 // --- Enemy ---
 
-void EnemySpawn(Enemy enemies[], int maxEnemies, EnemyType type, const Map *map)
+void EnemySpawn(Enemy enemies[], int maxEnemies, EnemyType type, const Map *map, GameState *gs)
 {
     for (int i = 0; i < maxEnemies; i++) {
         if (!enemies[i].active) {
             const EnemyConfig *cfg = &ENEMY_CONFIGS[type];
+            float scaledHp = cfg->maxHp * gs->hpMultiplier;
+            EntityID eid = EntityIDMake(ENTITY_TYPE_ENEMY, gs->nextEntitySeq++);
             enemies[i] = (Enemy){
                 .active = true,
+                .id = eid,
                 .type = type,
-                .hp = cfg->maxHp,
-                .maxHp = cfg->maxHp,
+                .hp = scaledHp,
+                .maxHp = scaledHp,
                 .speed = cfg->speed,
                 .baseSpeed = cfg->speed,
                 .waypointIndex = 0,
@@ -61,7 +112,6 @@ void EnemySpawn(Enemy enemies[], int maxEnemies, EnemyType type, const Map *map)
                 .radius = cfg->radius,
                 .color = cfg->color,
             };
-            // Place at first waypoint
             enemies[i].worldPos = MapGridToWorld(map->waypoints[0]);
             enemies[i].worldPos.y = cfg->radius;
             return;
@@ -88,7 +138,6 @@ void EnemiesUpdate(Enemy enemies[], int maxEnemies, const Map *map, GameState *g
 
         // Move along path
         if (e->waypointIndex >= map->waypointCount - 1) {
-            // Reached base
             e->active = false;
             gs->lives--;
             if (gs->lives <= 0) {
@@ -151,17 +200,21 @@ void EnemiesDrawHUD(const Enemy enemies[], int maxEnemies, Camera3D camera)
 
 // --- Tower ---
 
-void TowerPlace(Tower towers[], int maxTowers, TowerType type, GridPos pos)
+void TowerPlace(Tower towers[], int maxTowers, TowerType type, GridPos pos,
+                uint8_t ownerPlayer, GameState *gs)
 {
     for (int i = 0; i < maxTowers; i++) {
         if (!towers[i].active) {
+            EntityID tid = EntityIDMake(ENTITY_TYPE_TOWER, gs->nextEntitySeq++);
             towers[i] = (Tower){
                 .active = true,
+                .id = tid,
                 .type = type,
                 .level = 0,
                 .gridPos = pos,
                 .worldPos = MapGridToWorld(pos),
                 .cooldownTimer = 0.0f,
+                .ownerPlayer = ownerPlayer,
             };
             towers[i].worldPos.y = 0.35f;
             return;
@@ -180,7 +233,6 @@ static int TowerFindTarget(const Tower *tower, const Enemy enemies[], int maxEne
         if (!enemies[i].active) continue;
         float dist = Vector3Distance(tower->worldPos, enemies[i].worldPos);
         if (dist <= cfg->range) {
-            // Prioritize enemy furthest along path (closest to base)
             if (enemies[i].waypointIndex > bestWaypoint ||
                 (enemies[i].waypointIndex == bestWaypoint && enemies[i].pathProgress > bestProgress)) {
                 bestIdx = i;
@@ -193,7 +245,7 @@ static int TowerFindTarget(const Tower *tower, const Enemy enemies[], int maxEne
 }
 
 void TowersUpdate(Tower towers[], int maxTowers, Enemy enemies[], int maxEnemies,
-                  Projectile projectiles[], int maxProjectiles, float dt)
+                  Projectile projectiles[], int maxProjectiles, GameState *gs, float dt)
 {
     for (int i = 0; i < maxTowers; i++) {
         if (!towers[i].active) continue;
@@ -206,17 +258,17 @@ void TowersUpdate(Tower towers[], int maxTowers, Enemy enemies[], int maxEnemies
         int target = TowerFindTarget(t, enemies, maxEnemies);
         if (target < 0) continue;
 
-        // Fire!
         t->cooldownTimer = 1.0f / cfg->fireRate;
         Vector3 origin = t->worldPos;
         origin.y += 0.3f;
-        ProjectileSpawn(projectiles, maxProjectiles, origin, target,
+        ProjectileSpawn(projectiles, maxProjectiles, origin, enemies[target].id,
                        cfg->damage, cfg->projectileSpeed,
-                       cfg->slowFactor, cfg->slowDuration, cfg->aoeRadius, cfg->color);
+                       cfg->slowFactor, cfg->slowDuration, cfg->aoeRadius, cfg->color,
+                       t->ownerPlayer, gs);
     }
 }
 
-void TowersDraw(const Tower towers[], int maxTowers)
+void TowersDraw(const Tower towers[], int maxTowers, int playerCount)
 {
     for (int i = 0; i < maxTowers; i++) {
         if (!towers[i].active) continue;
@@ -224,40 +276,52 @@ void TowersDraw(const Tower towers[], int maxTowers)
         const TowerConfig *cfg = &TOWER_CONFIGS[t->type][t->level];
 
         DrawCubeV(t->worldPos, (Vector3){ 0.7f, 0.7f, 0.7f }, cfg->color);
-        DrawCubeWiresV(t->worldPos, (Vector3){ 0.72f, 0.72f, 0.72f }, BLACK);
+
+        if (playerCount > 1) {
+            // Tint wireframe with player color in multiplayer
+            DrawCubeWiresV(t->worldPos, (Vector3){ 0.72f, 0.72f, 0.72f },
+                          PLAYER_COLORS[t->ownerPlayer]);
+        } else {
+            DrawCubeWiresV(t->worldPos, (Vector3){ 0.72f, 0.72f, 0.72f }, BLACK);
+        }
     }
 }
 
 // --- Projectile ---
 
 void ProjectileSpawn(Projectile projectiles[], int maxProjectiles,
-                     Vector3 origin, int targetIndex, float damage, float speed,
-                     float slowFactor, float slowDuration, float aoeRadius, Color color)
+                     Vector3 origin, EntityID targetID, float damage, float speed,
+                     float slowFactor, float slowDuration, float aoeRadius, Color color,
+                     uint8_t ownerPlayer, GameState *gs)
 {
     for (int i = 0; i < maxProjectiles; i++) {
         if (!projectiles[i].active) {
+            EntityID pid = EntityIDMake(ENTITY_TYPE_PROJ, gs->nextEntitySeq++);
             projectiles[i] = (Projectile){
                 .active = true,
+                .id = pid,
                 .position = origin,
-                .targetEnemyIndex = targetIndex,
+                .targetEnemyID = targetID,
                 .damage = damage,
                 .speed = speed,
                 .slowFactor = slowFactor,
                 .slowDuration = slowDuration,
                 .aoeRadius = aoeRadius,
                 .color = color,
+                .ownerPlayer = ownerPlayer,
             };
             return;
         }
     }
 }
 
-static void ApplyDamageAndSlow(Enemy *e, float damage, float slowFactor, float slowDuration, GameState *gs)
+static void ApplyDamageAndSlow(Enemy *e, float damage, float slowFactor, float slowDuration,
+                               uint8_t ownerPlayer, GameState *gs)
 {
     e->hp -= damage;
     if (e->hp <= 0.0f) {
         e->active = false;
-        gs->gold += 10; // gold per kill
+        gs->playerGold[ownerPlayer] += gs->goldPerKill;
         return;
     }
     if (slowFactor < 1.0f) {
@@ -273,34 +337,30 @@ void ProjectilesUpdate(Projectile projectiles[], int maxProjectiles,
         if (!projectiles[i].active) continue;
         Projectile *p = &projectiles[i];
 
-        // Check if target is still alive
-        if (p->targetEnemyIndex < 0 || p->targetEnemyIndex >= maxEnemies ||
-            !enemies[p->targetEnemyIndex].active) {
+        Enemy *target = EnemyFindByID(enemies, maxEnemies, p->targetEnemyID);
+        if (!target) {
             p->active = false;
             continue;
         }
 
-        Enemy *target = &enemies[p->targetEnemyIndex];
         Vector3 dir = Vector3Subtract(target->worldPos, p->position);
         float dist = Vector3Length(dir);
 
         if (dist < 0.2f) {
-            // Hit!
             if (p->aoeRadius > 0.0f) {
-                // AoE damage
                 for (int j = 0; j < maxEnemies; j++) {
                     if (!enemies[j].active) continue;
                     if (Vector3Distance(p->position, enemies[j].worldPos) <= p->aoeRadius) {
-                        ApplyDamageAndSlow(&enemies[j], p->damage, p->slowFactor, p->slowDuration, gs);
+                        ApplyDamageAndSlow(&enemies[j], p->damage, p->slowFactor, p->slowDuration,
+                                          p->ownerPlayer, gs);
                     }
                 }
             } else {
-                // Single target
-                ApplyDamageAndSlow(target, p->damage, p->slowFactor, p->slowDuration, gs);
+                ApplyDamageAndSlow(target, p->damage, p->slowFactor, p->slowDuration,
+                                  p->ownerPlayer, gs);
             }
             p->active = false;
         } else {
-            // Move toward target
             dir = Vector3Scale(Vector3Normalize(dir), p->speed * dt);
             p->position = Vector3Add(p->position, dir);
         }

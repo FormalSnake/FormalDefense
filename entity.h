@@ -4,13 +4,35 @@
 #include "raylib.h"
 #include "map.h"
 #include <stdbool.h>
+#include <stdint.h>
 
 #define MAX_ENEMIES 128
 #define MAX_TOWERS 64
 #define MAX_PROJECTILES 256
+#define MAX_PLAYERS 4
 
 // Forward declare GameState
 typedef struct GameState GameState;
+
+// --- Entity ID ---
+
+typedef uint16_t EntityID;
+
+#define ENTITY_ID_NONE 0
+#define ENTITY_TYPE_BITS 2
+#define ENTITY_SEQ_BITS 14
+#define ENTITY_SEQ_MASK ((1 << ENTITY_SEQ_BITS) - 1)
+
+#define ENTITY_TYPE_ENEMY  (0 << ENTITY_SEQ_BITS)
+#define ENTITY_TYPE_TOWER  (1 << ENTITY_SEQ_BITS)
+#define ENTITY_TYPE_PROJ   (2 << ENTITY_SEQ_BITS)
+
+EntityID EntityIDMake(uint16_t typeBits, uint16_t seq);
+uint16_t EntityIDType(EntityID id);
+uint16_t EntityIDSeq(EntityID id);
+
+// Player colors for multiplayer tower tinting
+extern const Color PLAYER_COLORS[MAX_PLAYERS];
 
 // --- Enemy ---
 
@@ -30,6 +52,7 @@ typedef struct {
 
 typedef struct {
     bool active;
+    EntityID id;
     EnemyType type;
     Vector3 worldPos;
     float hp;
@@ -46,28 +69,32 @@ typedef struct {
 
 extern const EnemyConfig ENEMY_CONFIGS[ENEMY_TYPE_COUNT];
 
-void EnemySpawn(Enemy enemies[], int maxEnemies, EnemyType type, const Map *map);
+void EnemySpawn(Enemy enemies[], int maxEnemies, EnemyType type, const Map *map, GameState *gs);
 void EnemiesUpdate(Enemy enemies[], int maxEnemies, const Map *map, GameState *gs, float dt);
 void EnemiesDraw(const Enemy enemies[], int maxEnemies);
 void EnemiesDrawHUD(const Enemy enemies[], int maxEnemies, Camera3D camera);
+Enemy *EnemyFindByID(Enemy enemies[], int maxEnemies, EntityID id);
 
 // --- Projectile ---
 
 typedef struct {
     bool active;
+    EntityID id;
     Vector3 position;
-    int targetEnemyIndex;
+    EntityID targetEnemyID;
     float damage;
     float speed;
     float slowFactor;
     float slowDuration;
     float aoeRadius;
     Color color;
+    uint8_t ownerPlayer;
 } Projectile;
 
 void ProjectileSpawn(Projectile projectiles[], int maxProjectiles,
-                     Vector3 origin, int targetIndex, float damage, float speed,
-                     float slowFactor, float slowDuration, float aoeRadius, Color color);
+                     Vector3 origin, EntityID targetID, float damage, float speed,
+                     float slowFactor, float slowDuration, float aoeRadius, Color color,
+                     uint8_t ownerPlayer, GameState *gs);
 void ProjectilesUpdate(Projectile projectiles[], int maxProjectiles,
                        Enemy enemies[], int maxEnemies, GameState *gs, float dt);
 void ProjectilesDraw(const Projectile projectiles[], int maxProjectiles);
@@ -98,19 +125,23 @@ typedef struct {
 
 typedef struct {
     bool active;
+    EntityID id;
     TowerType type;
     int level;
     GridPos gridPos;
     Vector3 worldPos;
     float cooldownTimer;
+    uint8_t ownerPlayer;
 } Tower;
 
 extern const TowerConfig TOWER_CONFIGS[TOWER_TYPE_COUNT][TOWER_MAX_LEVEL];
 extern const char *TOWER_NAMES[TOWER_TYPE_COUNT];
 
-void TowerPlace(Tower towers[], int maxTowers, TowerType type, GridPos pos);
+void TowerPlace(Tower towers[], int maxTowers, TowerType type, GridPos pos,
+                uint8_t ownerPlayer, GameState *gs);
 void TowersUpdate(Tower towers[], int maxTowers, Enemy enemies[], int maxEnemies,
-                  Projectile projectiles[], int maxProjectiles, float dt);
-void TowersDraw(const Tower towers[], int maxTowers);
+                  Projectile projectiles[], int maxProjectiles, GameState *gs, float dt);
+void TowersDraw(const Tower towers[], int maxTowers, int playerCount);
+Tower *TowerFindByID(Tower towers[], int maxTowers, EntityID id);
 
 #endif

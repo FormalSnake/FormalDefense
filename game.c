@@ -38,6 +38,27 @@ void GameStateInit(GameState *gs)
     gs->totalSpawned = 0;
     gs->totalToSpawn = 0;
     gs->waveActive = false;
+
+    // Multiplayer defaults (single-player compatible)
+    gs->playerCount = 1;
+    gs->hpMultiplier = 1.0f;
+    gs->countMultiplier = 1.0f;
+    gs->goldPerKill = 10;
+    gs->nextEntitySeq = 1;
+    for (int i = 0; i < 4; i++) gs->playerGold[i] = 0;
+    gs->playerGold[0] = 250;
+}
+
+void GameStateInitMultiplayer(GameState *gs, int playerCount)
+{
+    GameStateInit(gs);
+    gs->playerCount = playerCount;
+    gs->hpMultiplier = 1.0f + 0.5f * (playerCount - 1);
+    gs->countMultiplier = 1.0f + 0.3f * (playerCount - 1);
+    gs->goldPerKill = 10 / playerCount;
+    if (gs->goldPerKill < 3) gs->goldPerKill = 3;
+    gs->lives = 20 + 5 * (playerCount - 1);
+    for (int i = 0; i < playerCount; i++) gs->playerGold[i] = 250;
 }
 
 bool GameAllEnemiesDead(const void *enemiesVoid, int maxEnemies)
@@ -66,11 +87,14 @@ void GameUpdateWave(GameState *gs, void *enemiesVoid, int maxEnemies, const Map 
             gs->spawnedInGroup = 0;
             gs->totalSpawned = 0;
 
-            // Count total enemies in this wave
+            // Count total enemies in this wave (with count multiplier)
             const WaveConfig *wc = &WAVE_CONFIGS[gs->currentWave];
             gs->totalToSpawn = 0;
-            for (int g = 0; g < wc->groupCount; g++)
-                gs->totalToSpawn += wc->groups[g].count;
+            for (int g = 0; g < wc->groupCount; g++) {
+                int scaledCount = (int)(wc->groups[g].count * gs->countMultiplier);
+                if (scaledCount < 1) scaledCount = 1;
+                gs->totalToSpawn += scaledCount;
+            }
         }
         return;
     }
@@ -84,30 +108,39 @@ void GameUpdateWave(GameState *gs, void *enemiesVoid, int maxEnemies, const Map 
         gs->spawnTimer -= dt;
         if (gs->spawnTimer <= 0.0f) {
             const WaveGroup *grp = &wc->groups[gs->currentGroup];
-            EnemySpawn(enemies, maxEnemies, (EnemyType)grp->enemyType, map);
+            int scaledCount = (int)(grp->count * gs->countMultiplier);
+            if (scaledCount < 1) scaledCount = 1;
+
+            EnemySpawn(enemies, maxEnemies, (EnemyType)grp->enemyType, map, gs);
             gs->spawnedInGroup++;
             gs->totalSpawned++;
             gs->spawnTimer = wc->spawnInterval;
 
-            if (gs->spawnedInGroup >= grp->count) {
+            if (gs->spawnedInGroup >= scaledCount) {
                 gs->currentGroup++;
                 gs->spawnedInGroup = 0;
             }
 
             if (gs->currentGroup >= wc->groupCount) {
-                gs->waveActive = false; // All spawned
+                gs->waveActive = false;
             }
         }
     }
 
-    // Check wave complete: all spawned and all dead
+    // Check wave complete
     if (!gs->waveActive && gs->totalSpawned >= gs->totalToSpawn &&
         GameAllEnemiesDead(enemies, maxEnemies)) {
-        gs->gold += wc->bonusGold;
+        // Split bonus gold among players
+        int bonusPerPlayer = wc->bonusGold / gs->playerCount;
+        for (int i = 0; i < gs->playerCount; i++)
+            gs->playerGold[i] += bonusPerPlayer;
+        // Keep legacy gold in sync for single-player HUD
+        gs->gold = gs->playerGold[0];
+
         gs->currentWave++;
 
         if (gs->currentWave >= MAX_WAVES) {
-            gs->phase = PHASE_OVER; // Victory!
+            gs->phase = PHASE_OVER;
         } else {
             gs->phase = PHASE_WAVE_COUNTDOWN;
             gs->waveCountdown = 5.0f;

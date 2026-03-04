@@ -4,6 +4,9 @@
 #include "map.h"
 #include "entity.h"
 #include "game.h"
+#include "net.h"
+#include "lobby.h"
+#include "chat.h"
 #include <math.h>
 #include <string.h>
 
@@ -16,7 +19,7 @@
 
 // --- Scene ---
 
-typedef enum { SCENE_MENU, SCENE_GAME } Scene;
+typedef enum { SCENE_MENU, SCENE_LOBBY, SCENE_GAME } Scene;
 
 // --- Camera Controller ---
 
@@ -217,6 +220,16 @@ static void DrawBlobShadow(Vector3 center, float radius)
 #define INFO_PANEL_W 200
 #define INFO_PANEL_H 160
 
+// --- Chat Callback ---
+
+static ChatState *g_chatStatePtr = NULL;
+
+static void OnNetChatReceived(uint8_t playerIndex, const char *username, const char *message)
+{
+    if (g_chatStatePtr)
+        ChatAddMessage(g_chatStatePtr, playerIndex, username, message);
+}
+
 // --- Main ---
 
 int main(void)
@@ -263,6 +276,16 @@ int main(void)
 
     Scene currentScene = SCENE_MENU;
 
+    // --- Multiplayer state ---
+    NetContext netCtx;
+    NetContextInit(&netCtx);
+    LobbyState lobbyState;
+    LobbyStateInit(&lobbyState);
+    ChatState chatState;
+    ChatStateInit(&chatState);
+    g_chatStatePtr = &chatState;
+    g_netChatCallback = OnNetChatReceived;
+
     // --- Menu state ---
     Map menuMap;
     MapInit(&menuMap);
@@ -296,6 +319,7 @@ int main(void)
     int selectedTowerType = -1;  // -1 = no selection for placement
     int selectedTowerIdx = -1;   // -1 = no tower selected for info
     GamePhase phaseBeforePause = PHASE_PLAYING;
+    bool localPaused = false;    // For multiplayer: local UI pause without stopping sim
 
     while (!WindowShouldClose())
     {
@@ -381,8 +405,19 @@ int main(void)
             int playTextW = MeasureText(playText, 30);
             DrawText(playText, pbX + (pbW - playTextW) / 2, pbY + 10, 30, WHITE);
 
+            // Multiplayer button
+            int mpY = pbY + pbH + 15;
+            Rectangle mpBtn = { (float)pbX, (float)mpY, (float)pbW, (float)pbH };
+            bool mpHover = CheckCollisionPointRec(mouse, mpBtn);
+            Color mpBg = mpHover ? (Color){ 50, 80, 120, 255 } : (Color){ 35, 55, 80, 255 };
+            DrawRectangleRec(mpBtn, mpBg);
+            DrawRectangleLinesEx(mpBtn, 2, (Color){ 100, 150, 220, 200 });
+            const char *mpText = "Multiplayer";
+            int mpTextW = MeasureText(mpText, 30);
+            DrawText(mpText, pbX + (pbW - mpTextW) / 2, mpY + 10, 30, WHITE);
+
             // Quit button
-            int qbY = pbY + pbH + 15;
+            int qbY = mpY + pbH + 15;
             Rectangle quitBtn = { (float)pbX, (float)qbY, (float)pbW, (float)pbH };
             bool quitHover = CheckCollisionPointRec(mouse, quitBtn);
             Color quitBg = quitHover ? (Color){ 140, 50, 50, 255 } : (Color){ 100, 35, 35, 255 };
@@ -404,10 +439,50 @@ int main(void)
                 return 0;
             }
 
+            // Multiplayer button click
+            if (mpHover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+                LobbyStateInit(&lobbyState);
+                currentScene = SCENE_LOBBY;
+            }
+
             // Play button click
             if (playHover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
                 MapInit(&map);
                 GameStateInit(&gs);
+                memset(enemies, 0, sizeof(enemies));
+                memset(towers, 0, sizeof(towers));
+                memset(projectiles, 0, sizeof(projectiles));
+                CameraControllerInit(&camCtrl);
+                CameraControllerUpdate(&camCtrl, &camera, 0.0f);
+                selectedTowerType = -1;
+                selectedTowerIdx = -1;
+                currentScene = SCENE_GAME;
+            }
+        } break;
+
+        case SCENE_LOBBY: {
+            LobbyUpdate(&lobbyState, &netCtx);
+
+            BeginDrawing();
+            ClearBackground((Color){ 20, 22, 28, 255 });
+            LobbyDraw(&lobbyState, &netCtx, screenW, screenH);
+
+            // Back button in choose phase returns to menu
+            if (lobbyState.phase == LOBBY_CHOOSE && IsKeyPressed(KEY_ESCAPE)) {
+                currentScene = SCENE_MENU;
+            }
+
+            EndDrawing();
+
+            // Check if game should start
+            if (LobbyGameStarted(&lobbyState, &netCtx)) {
+                MapInit(&map);
+                if (netCtx.mode == NET_MODE_HOST) {
+                    GameStateInitMultiplayer(&gs, netCtx.playerCount);
+                } else {
+                    GameStateInit(&gs);
+                    gs.playerCount = netCtx.playerCount;
+                }
                 memset(enemies, 0, sizeof(enemies));
                 memset(towers, 0, sizeof(towers));
                 memset(projectiles, 0, sizeof(projectiles));
@@ -432,16 +507,33 @@ int main(void)
                 mouseInUI = true;
         }
 
+        // --- Chat input (before other input) ---
+        bool chatActive = ChatHandleInput(&chatState, &netCtx);
+        ChatUpdate(&chatState, dt);
+
         // --- ESC: deselect, pause, or resume ---
-        if (IsKeyPressed(KEY_ESCAPE)) {
-            if (gs.phase == PHASE_PAUSED) {
-                gs.phase = phaseBeforePause;
-            } else if (selectedTowerType >= 0 || selectedTowerIdx >= 0) {
-                selectedTowerType = -1;
-                selectedTowerIdx = -1;
-            } else if (gs.phase != PHASE_OVER) {
-                phaseBeforePause = gs.phase;
-                gs.phase = PHASE_PAUSED;
+        if (!chatActive && IsKeyPressed(KEY_ESCAPE)) {
+            if (netCtx.mode != NET_MODE_NONE) {
+                // Multiplayer: local pause overlay only
+                if (localPaused) {
+                    localPaused = false;
+                } else if (selectedTowerType >= 0 || selectedTowerIdx >= 0) {
+                    selectedTowerType = -1;
+                    selectedTowerIdx = -1;
+                } else {
+                    localPaused = true;
+                }
+            } else {
+                // Single-player
+                if (gs.phase == PHASE_PAUSED) {
+                    gs.phase = phaseBeforePause;
+                } else if (selectedTowerType >= 0 || selectedTowerIdx >= 0) {
+                    selectedTowerType = -1;
+                    selectedTowerIdx = -1;
+                } else if (gs.phase != PHASE_OVER) {
+                    phaseBeforePause = gs.phase;
+                    gs.phase = PHASE_PAUSED;
+                }
             }
         }
         if (IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) {
@@ -475,7 +567,8 @@ int main(void)
                 Rectangle btnRect = { (float)bx, (float)by, (float)BTN_WIDTH, (float)BTN_HEIGHT };
                 if (CheckCollisionPointRec(mouse, btnRect)) {
                     int cost = TOWER_CONFIGS[i][0].cost;
-                    if (gs.gold >= cost) {
+                    int lpi = netCtx.mode != NET_MODE_NONE ? netCtx.localPlayerIndex : 0;
+                    if (gs.playerGold[lpi] >= cost) {
                         selectedTowerType = i;
                         selectedTowerIdx = -1;
                     }
@@ -491,13 +584,19 @@ int main(void)
 
         // --- Left click in 3D area ---
         if (!mouseInUI && IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && gs.phase != PHASE_OVER) {
+            int lpi = netCtx.mode != NET_MODE_NONE ? netCtx.localPlayerIndex : 0;
             if (selectedTowerType >= 0 && canPlace) {
-                // Place tower
                 int cost = TOWER_CONFIGS[selectedTowerType][0].cost;
-                if (gs.gold >= cost) {
-                    gs.gold -= cost;
-                    TowerPlace(towers, MAX_TOWERS, (TowerType)selectedTowerType, mouseGrid);
-                    map.tiles[mouseGrid.z][mouseGrid.x] = TILE_TOWER;
+                if (gs.playerGold[lpi] >= cost) {
+                    if (netCtx.mode == NET_MODE_CLIENT) {
+                        NetSendPlaceTower(&netCtx, (TowerType)selectedTowerType, mouseGrid);
+                    } else {
+                        gs.playerGold[lpi] -= cost;
+                        gs.gold = gs.playerGold[0];
+                        TowerPlace(towers, MAX_TOWERS, (TowerType)selectedTowerType, mouseGrid,
+                                  (uint8_t)lpi, &gs);
+                        map.tiles[mouseGrid.z][mouseGrid.x] = TILE_TOWER;
+                    }
                 }
             } else if (selectedTowerType < 0 && mouseOnGround) {
                 // Try to select an existing tower
@@ -517,12 +616,39 @@ int main(void)
         // --- Upgrade selected tower ---
         // (handled in UI draw section via button click check)
 
-        // --- Update game systems ---
-        if (gs.phase != PHASE_OVER && gs.phase != PHASE_PAUSED) {
+        // --- Network polling ---
+        if (netCtx.mode != NET_MODE_NONE) {
+            NetPoll(&netCtx, &gs, enemies, towers, projectiles, &map);
+
+            // Client: check if host disconnected
+            if (netCtx.mode == NET_MODE_CLIENT && !netCtx.serverPeer) {
+                NetContextDestroy(&netCtx);
+                NetShutdown();
+                NetContextInit(&netCtx);
+                localPaused = false;
+                MapInit(&menuMap);
+                menuCamCtrl.yaw = 0.0f;
+                currentScene = SCENE_MENU;
+                break; // exit SCENE_GAME case
+            }
+        }
+
+        // --- Update game systems (host and single-player only) ---
+        if (netCtx.mode != NET_MODE_CLIENT &&
+            gs.phase != PHASE_OVER && gs.phase != PHASE_PAUSED) {
             GameUpdateWave(&gs, enemies, MAX_ENEMIES, &map, dt);
             EnemiesUpdate(enemies, MAX_ENEMIES, &map, &gs, dt);
-            TowersUpdate(towers, MAX_TOWERS, enemies, MAX_ENEMIES, projectiles, MAX_PROJECTILES, dt);
+            TowersUpdate(towers, MAX_TOWERS, enemies, MAX_ENEMIES, projectiles, MAX_PROJECTILES, &gs, dt);
             ProjectilesUpdate(projectiles, MAX_PROJECTILES, enemies, MAX_ENEMIES, &gs, dt);
+        }
+
+        // --- Broadcast snapshots (host only) ---
+        if (netCtx.mode == NET_MODE_HOST) {
+            netCtx.snapshotTimer += dt;
+            if (netCtx.snapshotTimer >= NET_SNAPSHOT_RATE) {
+                netCtx.snapshotTimer -= NET_SNAPSHOT_RATE;
+                NetBroadcastSnapshot(&netCtx, &gs, enemies, towers, projectiles);
+            }
         }
 
         // Deselect tower if it became inactive
@@ -572,7 +698,7 @@ int main(void)
                     }
                 }
 
-                TowersDraw(towers, MAX_TOWERS);
+                TowersDraw(towers, MAX_TOWERS, gs.playerCount);
 
                 // Range indicator for selected tower
                 if (selectedTowerIdx >= 0 && towers[selectedTowerIdx].active) {
@@ -608,7 +734,8 @@ int main(void)
 
         // --- Top bar ---
         DrawRectangle(0, 0, screenW, 32, (Color){ 0, 0, 0, 180 });
-        DrawText(TextFormat("Gold: %d", gs.gold), 10, 7, 20, GOLD);
+        int localPI = netCtx.mode != NET_MODE_NONE ? netCtx.localPlayerIndex : 0;
+        DrawText(TextFormat("Gold: %d", gs.playerGold[localPI]), 10, 7, 20, GOLD);
         DrawText(TextFormat("Lives: %d", gs.lives), 170, 7, 20,
                  gs.lives > 5 ? RED : MAROON);
         DrawText(TextFormat("Wave: %d/%d", gs.currentWave + 1, MAX_WAVES), 330, 7, 20, WHITE);
@@ -627,7 +754,7 @@ int main(void)
             int bx = BTN_MARGIN + i * (BTN_WIDTH + BTN_MARGIN);
             int by = screenH - BOTTOM_BAR_HEIGHT + (BOTTOM_BAR_HEIGHT - BTN_HEIGHT) / 2;
             int cost = TOWER_CONFIGS[i][0].cost;
-            bool affordable = gs.gold >= cost;
+            bool affordable = gs.playerGold[localPI] >= cost;
 
             Color btnBg = (selectedTowerType == i) ? (Color){ 80, 120, 80, 255 } :
                           affordable ? (Color){ 50, 50, 60, 255 } : (Color){ 40, 40, 40, 255 };
@@ -671,7 +798,7 @@ int main(void)
             // Upgrade button
             if (st->level < TOWER_MAX_LEVEL - 1) {
                 int upgCost = TOWER_CONFIGS[st->type][st->level + 1].cost;
-                bool canUpg = gs.gold >= upgCost;
+                bool canUpg = gs.playerGold[localPI] >= upgCost;
                 int ubx = px + 8, uby = py + INFO_PANEL_H - 30;
                 int ubw = INFO_PANEL_W - 16, ubh = 24;
 
@@ -687,8 +814,13 @@ int main(void)
                 if (canUpg && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
                     Rectangle upgRect = { (float)ubx, (float)uby, (float)ubw, (float)ubh };
                     if (CheckCollisionPointRec(mouse, upgRect)) {
-                        gs.gold -= upgCost;
-                        towers[selectedTowerIdx].level++;
+                        if (netCtx.mode == NET_MODE_CLIENT) {
+                            NetSendUpgradeTower(&netCtx, towers[selectedTowerIdx].id);
+                        } else {
+                            gs.playerGold[localPI] -= upgCost;
+                            gs.gold = gs.playerGold[0];
+                            towers[selectedTowerIdx].level++;
+                        }
                     }
                 }
             } else {
@@ -702,8 +834,49 @@ int main(void)
                      TOWER_NAMES[selectedTowerType]), 10, screenH - BOTTOM_BAR_HEIGHT - 24, 16, YELLOW);
         }
 
+        // --- Multiplayer Player List & Gift UI ---
+        if (netCtx.mode != NET_MODE_NONE && gs.playerCount > 1) {
+            int plX = 10, plY = 40;
+            DrawRectangle(plX, plY, 180, 30 * gs.playerCount + 5, (Color){ 0, 0, 0, 150 });
+            for (int i = 0; i < NET_MAX_PLAYERS; i++) {
+                if (!netCtx.playerConnected[i]) continue;
+                int py = plY + 3 + i * 30;
+                Color pCol = PLAYER_COLORS[i];
+                bool isLocal = (i == localPI);
+                DrawText(TextFormat("P%d: %s %s$%d", i + 1,
+                        netCtx.playerNames[i],
+                        isLocal ? "(You)" : "",
+                        gs.playerGold[i]),
+                        plX + 5, py, 14, pCol);
+
+                // Gift button (only for other players)
+                if (!isLocal && i != localPI) {
+                    int gbX = plX + 140;
+                    Rectangle giftBtn = { (float)gbX, (float)py, 35.0f, 18.0f };
+                    bool giftHover = CheckCollisionPointRec(mouse, giftBtn);
+                    DrawRectangleRec(giftBtn, giftHover ? (Color){60,80,60,255} : (Color){40,50,40,255});
+                    DrawText("$25", gbX + 3, py + 2, 12, GOLD);
+                    if (giftHover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && gs.playerGold[localPI] >= 25) {
+                        if (netCtx.mode == NET_MODE_CLIENT) {
+                            NetSendGiftGold(&netCtx, (uint8_t)i, 25);
+                        } else {
+                            gs.playerGold[localPI] -= 25;
+                            gs.playerGold[i] += 25;
+                        }
+                    }
+                }
+            }
+
+            // Tower owner name
+            if (selectedTowerIdx >= 0 && towers[selectedTowerIdx].active) {
+                uint8_t owner = towers[selectedTowerIdx].ownerPlayer;
+                DrawText(TextFormat("Owner: %s", netCtx.playerNames[owner]),
+                        screenW - INFO_PANEL_W - 2, 28, 14, PLAYER_COLORS[owner]);
+            }
+        }
+
         // --- Pause Menu ---
-        if (gs.phase == PHASE_PAUSED) {
+        if (gs.phase == PHASE_PAUSED || localPaused) {
             DrawRectangle(0, 0, screenW, screenH, (Color){ 0, 0, 0, 150 });
 
             const char *pauseTitle = "PAUSED";
@@ -747,6 +920,11 @@ int main(void)
             DrawText(pQuitText, pBtnX + (pBtnW - pQuitTextW) / 2, pQuitY + 11, 24, WHITE);
         }
 
+        // --- Chat overlay ---
+        if (netCtx.mode != NET_MODE_NONE) {
+            ChatDraw(&chatState, screenW, screenH);
+        }
+
         // --- Game Over Screen ---
         if (gs.phase == PHASE_OVER) {
             DrawRectangle(0, 0, screenW, screenH, (Color){ 0, 0, 0, 150 });
@@ -783,7 +961,7 @@ int main(void)
         EndDrawing();
 
         // --- Pause menu button clicks ---
-        if (gs.phase == PHASE_PAUSED) {
+        if (gs.phase == PHASE_PAUSED || localPaused) {
             if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
                 int pBtnW = 200, pBtnH = 45;
                 int pBtnX = (screenW - pBtnW) / 2;
@@ -796,12 +974,23 @@ int main(void)
                 Rectangle pQuitBtn = { (float)pBtnX, (float)pQuitY, (float)pBtnW, (float)pBtnH };
 
                 if (CheckCollisionPointRec(mouse, resumeBtn)) {
-                    gs.phase = phaseBeforePause;
+                    if (localPaused) localPaused = false;
+                    else gs.phase = phaseBeforePause;
                 } else if (CheckCollisionPointRec(mouse, pmMenuBtn)) {
+                    localPaused = false;
+                    if (netCtx.mode != NET_MODE_NONE) {
+                        NetContextDestroy(&netCtx);
+                        NetShutdown();
+                        NetContextInit(&netCtx);
+                    }
                     MapInit(&menuMap);
                     menuCamCtrl.yaw = 0.0f;
                     currentScene = SCENE_MENU;
                 } else if (CheckCollisionPointRec(mouse, pQuitBtn)) {
+                    if (netCtx.mode != NET_MODE_NONE) {
+                        NetContextDestroy(&netCtx);
+                        NetShutdown();
+                    }
                     CloseWindow();
                     return 0;
                 }
@@ -826,6 +1015,11 @@ int main(void)
             if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && CheckCollisionPointRec(mouse, menuBtn))
                 goMenu = true;
             if (goMenu) {
+                if (netCtx.mode != NET_MODE_NONE) {
+                    NetContextDestroy(&netCtx);
+                    NetShutdown();
+                    NetContextInit(&netCtx);
+                }
                 MapInit(&menuMap);
                 menuCamCtrl.yaw = 0.0f;
                 currentScene = SCENE_MENU;
@@ -836,6 +1030,10 @@ int main(void)
         } // end switch
     }
 
+    if (netCtx.mode != NET_MODE_NONE) {
+        NetContextDestroy(&netCtx);
+        NetShutdown();
+    }
     UnloadRenderTexture(renderTarget);
     UnloadShader(ps1Shader);
     CloseWindow();
