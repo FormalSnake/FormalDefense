@@ -33,8 +33,8 @@ static void CameraControllerInit(CameraController *cc)
 static void CameraControllerUpdate(CameraController *cc, Camera3D *cam, float dt)
 {
     float panX = 0.0f, panZ = 0.0f;
-    if (IsKeyDown(KEY_W) || IsKeyDown(KEY_UP))    panZ -= 1.0f;
-    if (IsKeyDown(KEY_S) || IsKeyDown(KEY_DOWN))  panZ += 1.0f;
+    if (IsKeyDown(KEY_W) || IsKeyDown(KEY_UP))    panZ += 1.0f;
+    if (IsKeyDown(KEY_S) || IsKeyDown(KEY_DOWN))  panZ -= 1.0f;
     if (IsKeyDown(KEY_A) || IsKeyDown(KEY_LEFT))  panX -= 1.0f;
     if (IsKeyDown(KEY_D) || IsKeyDown(KEY_RIGHT)) panX += 1.0f;
 
@@ -50,11 +50,13 @@ static void CameraControllerUpdate(CameraController *cc, Camera3D *cam, float dt
     if (IsMouseButtonDown(MOUSE_BUTTON_MIDDLE)) {
         Vector2 delta = GetMouseDelta();
         cc->yaw   -= delta.x * cc->rotSpeed;
-        cc->pitch -= delta.y * cc->rotSpeed;
+        cc->pitch += delta.y * cc->rotSpeed;
     }
 
-    float wheel = GetMouseWheelMove();
-    cc->distance -= wheel * cc->zoomSpeed;
+    if (!IsMouseButtonDown(MOUSE_BUTTON_MIDDLE)) {
+        float wheel = GetMouseWheelMove();
+        cc->distance -= wheel * cc->zoomSpeed;
+    }
 
     if (cc->pitch < 20.0f) cc->pitch = 20.0f;
     if (cc->pitch > 80.0f) cc->pitch = 80.0f;
