@@ -460,6 +460,52 @@ static float TerrainNoise(float x, float z)
     return (x1 * (1 - v) + x2 * v) * 0.08f;  // ~±0.08 amplitude
 }
 
+// --- Per-vertex baked terrain shadows (PS1-style) ---
+
+// Returns shadow factor for grid corner (cx,cz): 1.0 = fully lit, 0.55 = shadowed
+static float CornerShadow(const Map *map, int cx, int cz)
+{
+    // Light dir (0.4, -0.7, 0.3) — trace toward light on XZ plane
+    float stepX = -0.4f;
+    float stepZ = -0.3f;
+    float len = sqrtf(stepX * stepX + stepZ * stepZ);
+    stepX /= len;
+    stepZ /= len;
+    // Y rise per horizontal step — scale by ELEVATION_HEIGHT so ray slope
+    // is proportional to terrain heights (0..4 levels × 0.5 each = 0..2.0)
+    float verticalRate = (0.7f / len) * ELEVATION_HEIGHT;
+
+    // Corner elevation = average of up to 4 neighboring tiles
+    float elevSum = 0; int elevCount = 0;
+    for (int dz = -1; dz <= 0; dz++) {
+        for (int dx = -1; dx <= 0; dx++) {
+            int tx = cx + dx, tz = cz + dz;
+            if (tx >= 0 && tx < MAP_WIDTH && tz >= 0 && tz < MAP_HEIGHT) {
+                elevSum += map->elevation[tz][tx] * ELEVATION_HEIGHT;
+                elevCount++;
+            }
+        }
+    }
+    float baseElev = elevCount > 0 ? elevSum / elevCount : 0.0f;
+
+    float fx = (float)cx;
+    float fz = (float)cz;
+
+    for (int i = 1; i <= 25; i++) {
+        float sx = fx + stepX * i;
+        float sz = fz + stepZ * i;
+        int gx = (int)sx;
+        int gz = (int)sz;
+        if (gx < 0 || gx >= MAP_WIDTH || gz < 0 || gz >= MAP_HEIGHT) break;
+
+        float sampleElev = map->elevation[gz][gx] * ELEVATION_HEIGHT;
+        float rayHeight = baseElev + verticalRate * i;
+
+        if (sampleElev > rayHeight) return 0.55f;  // In shadow
+    }
+    return 1.0f;  // Fully lit
+}
+
 // --- Pre-baked Map Mesh ---
 
 // Max triangles: tile tops (300*2) + cliff faces (~3000) + island skirt (~1600) = ~5500
@@ -550,6 +596,12 @@ void MapBuildMesh(MapMesh *mm, const Map *map, Shader ps1Shader)
         vertCount++; \
     } while(0)
 
+    // Precompute per-corner shadow grid: (MAP_WIDTH+1) x (MAP_HEIGHT+1) corners
+    float shadow[MAP_HEIGHT + 1][MAP_WIDTH + 1];
+    for (int cz = 0; cz <= MAP_HEIGHT; cz++)
+        for (int cx = 0; cx <= MAP_WIDTH; cx++)
+            shadow[cz][cx] = CornerShadow(map, cx, cz);
+
     // Pass 1: Tile top faces
     for (int z = 0; z < MAP_HEIGHT; z++) {
         for (int x = 0; x < MAP_WIDTH; x++) {
@@ -584,6 +636,17 @@ void MapBuildMesh(MapMesh *mm, const Map *map, Shader ps1Shader)
             Color c2 = PerturbColor(base, x, z, 2);
             Color c3 = PerturbColor(base, x, z, 3);
 
+            // Apply per-vertex shadow (smooth interpolation across triangles)
+            float s00 = shadow[z][x];
+            float s10 = shadow[z][x + 1];
+            float s01 = shadow[z + 1][x];
+            float s11 = shadow[z + 1][x + 1];
+
+            c0.r *= s00; c0.g *= s00; c0.b *= s00;
+            c1.r *= s10; c1.g *= s10; c1.b *= s10;
+            c2.r *= s01; c2.g *= s01; c2.b *= s01;
+            c3.r *= s11; c3.g *= s11; c3.b *= s11;
+
             // Triangle 1: (x0,z0), (x1,z1), (x1,z0)
             EMIT_VERT(x0, y00, z0, c0.r, c0.g, c0.b, 255);
             EMIT_VERT(x1, y11, z1, c3.r, c3.g, c3.b, 255);
@@ -601,8 +664,13 @@ void MapBuildMesh(MapMesh *mm, const Map *map, Shader ps1Shader)
         for (int x = 0; x < MAP_WIDTH; x++) {
             float elev = map->elevation[z][x] * ELEVATION_HEIGHT;
             Color base = TileBaseColor(map->tiles[z][x]);
-            Color cliff = { (unsigned char)(base.r * 0.5f), (unsigned char)(base.g * 0.5f),
-                            (unsigned char)(base.b * 0.5f), 255 };
+
+            // Average shadow of tile's corners for cliff darkening
+            float tileShadow = (shadow[z][x] + shadow[z][x+1] +
+                                shadow[z+1][x] + shadow[z+1][x+1]) * 0.25f;
+            Color cliff = { (unsigned char)(base.r * 0.5f * tileShadow),
+                            (unsigned char)(base.g * 0.5f * tileShadow),
+                            (unsigned char)(base.b * 0.5f * tileShadow), 255 };
 
             float x0 = x * TILE_SIZE;
             float x1 = x0 + TILE_SIZE;
