@@ -1,7 +1,5 @@
 #include "map.h"
-#include "raylib.h"
-#include "raymath.h"
-#include "rlgl.h"
+#include "fd_gfx.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -464,7 +462,7 @@ static float TerrainNoise(float x, float z)
 // Max triangles: tile tops (300*2) + cliff faces (rough upper bound ~300*4*2) = ~3000
 #define MAP_MESH_MAX_TRIS 4096
 
-void MapBuildMesh(MapMesh *mm, const Map *map, Shader ps1Shader)
+void MapBuildMesh(MapMesh *mm, const Map *map)
 {
     if (mm->ready) MapFreeMesh(mm);
 
@@ -603,16 +601,10 @@ void MapBuildMesh(MapMesh *mm, const Map *map, Shader ps1Shader)
 
     #undef EMIT_VERT
 
-    // Build Raylib Mesh
-    mm->mesh = (Mesh){0};
-    mm->mesh.vertexCount = vertCount;
-    mm->mesh.triangleCount = vertCount / 3;
-    mm->mesh.vertices = vertices;
-    mm->mesh.colors = colors;
-
     // Generate normals for lighting
-    mm->mesh.normals = malloc(vertCount * 3 * sizeof(float));
-    for (int t = 0; t < mm->mesh.triangleCount; t++) {
+    int triCount = vertCount / 3;
+    float *normals = malloc(vertCount * 3 * sizeof(float));
+    for (int t = 0; t < triCount; t++) {
         int i0 = t * 3;
         Vector3 v0 = { vertices[i0*3], vertices[i0*3+1], vertices[i0*3+2] };
         Vector3 v1 = { vertices[(i0+1)*3], vertices[(i0+1)*3+1], vertices[(i0+1)*3+2] };
@@ -621,37 +613,39 @@ void MapBuildMesh(MapMesh *mm, const Map *map, Shader ps1Shader)
         Vector3 edge2 = Vector3Subtract(v2, v0);
         Vector3 n = Vector3Normalize(Vector3CrossProduct(edge1, edge2));
         for (int k = 0; k < 3; k++) {
-            mm->mesh.normals[(i0+k)*3+0] = n.x;
-            mm->mesh.normals[(i0+k)*3+1] = n.y;
-            mm->mesh.normals[(i0+k)*3+2] = n.z;
+            normals[(i0+k)*3+0] = n.x;
+            normals[(i0+k)*3+1] = n.y;
+            normals[(i0+k)*3+2] = n.z;
         }
     }
 
-    UploadMesh(&mm->mesh, false);
-
-    // Setup material with PS1 shader
-    mm->material = LoadMaterialDefault();
-    mm->material.shader = ps1Shader;
+    // Create GPU mesh via abstraction layer
+    mm->mesh = FdMeshCreate(vertices, colors, normals, vertCount);
     mm->ready = true;
+
+    free(vertices);
+    free(colors);
+    free(normals);
 }
 
 void MapDrawMesh(const MapMesh *mm)
 {
     if (!mm->ready) return;
-    DrawMesh(mm->mesh, mm->material, MatrixIdentity());
+    FdDrawMesh(mm->mesh, MatrixIdentity(), true);
 }
 
 void MapFreeMesh(MapMesh *mm)
 {
     if (!mm->ready) return;
-    UnloadMesh(mm->mesh);
+    FdMeshDestroy(mm->mesh);
+    mm->mesh = NULL;
     mm->ready = false;
 }
 
 void MapDraw(const Map *map)
 {
-    // Pass 1: Tile top faces (quads as triangle pairs via rlgl)
-    rlBegin(RL_TRIANGLES);
+    // Pass 1: Tile top faces (quads as triangle pairs)
+    FdBeginTriangles();
     for (int z = 0; z < MAP_HEIGHT; z++) {
         for (int x = 0; x < MAP_WIDTH; x++) {
             Color base = TileBaseColor(map->tiles[z][x]);
@@ -662,7 +656,6 @@ void MapDraw(const Map *map)
             float z0 = z * TILE_SIZE;
             float z1 = z0 + TILE_SIZE;
 
-            // Corner Y values with smooth noise (absolute coords → shared vertices match)
             float y00 = elev + TerrainNoise(x, z);
             float y10 = elev + TerrainNoise(x + 1, z);
             float y01 = elev + TerrainNoise(x, z + 1);
@@ -674,31 +667,30 @@ void MapDraw(const Map *map)
             Color c3 = PerturbColor(base, x, z, 3);
 
             // Triangle 1: (x0,z0), (x1,z1), (x1,z0) — CCW from above
-            rlColor4ub(c0.r, c0.g, c0.b, 255);
-            rlVertex3f(x0, y00, z0);
-            rlColor4ub(c3.r, c3.g, c3.b, 255);
-            rlVertex3f(x1, y11, z1);
-            rlColor4ub(c1.r, c1.g, c1.b, 255);
-            rlVertex3f(x1, y10, z0);
+            FdTriColor4ub(c0.r, c0.g, c0.b, 255);
+            FdTriVertex3f(x0, y00, z0);
+            FdTriColor4ub(c3.r, c3.g, c3.b, 255);
+            FdTriVertex3f(x1, y11, z1);
+            FdTriColor4ub(c1.r, c1.g, c1.b, 255);
+            FdTriVertex3f(x1, y10, z0);
 
             // Triangle 2: (x0,z0), (x0,z1), (x1,z1) — CCW from above
-            rlColor4ub(c0.r, c0.g, c0.b, 255);
-            rlVertex3f(x0, y00, z0);
-            rlColor4ub(c2.r, c2.g, c2.b, 255);
-            rlVertex3f(x0, y01, z1);
-            rlColor4ub(c3.r, c3.g, c3.b, 255);
-            rlVertex3f(x1, y11, z1);
+            FdTriColor4ub(c0.r, c0.g, c0.b, 255);
+            FdTriVertex3f(x0, y00, z0);
+            FdTriColor4ub(c2.r, c2.g, c2.b, 255);
+            FdTriVertex3f(x0, y01, z1);
+            FdTriColor4ub(c3.r, c3.g, c3.b, 255);
+            FdTriVertex3f(x1, y11, z1);
         }
     }
-    rlEnd();
+    FdEndTriangles();
 
     // Pass 2: Cliff faces between tiles with different elevation
-    rlBegin(RL_TRIANGLES);
+    FdBeginTriangles();
     for (int z = 0; z < MAP_HEIGHT; z++) {
         for (int x = 0; x < MAP_WIDTH; x++) {
             float elev = map->elevation[z][x] * ELEVATION_HEIGHT;
             Color base = TileBaseColor(map->tiles[z][x]);
-            // Darken cliff color
             Color cliff = { (unsigned char)(base.r * 0.5f), (unsigned char)(base.g * 0.5f),
                             (unsigned char)(base.b * 0.5f), 255 };
 
@@ -715,28 +707,26 @@ void MapDraw(const Map *map)
                 neighborElev = 0.0f;
 
             if (elev > neighborElev) {
-                // Vertical wall on right edge — CCW from +X
-                rlColor4ub(cliff.r, cliff.g, cliff.b, 255);
-                rlVertex3f(x1, elev, z0);
-                rlVertex3f(x1, neighborElev, z1);
-                rlVertex3f(x1, neighborElev, z0);
+                FdTriColor4ub(cliff.r, cliff.g, cliff.b, 255);
+                FdTriVertex3f(x1, elev, z0);
+                FdTriVertex3f(x1, neighborElev, z1);
+                FdTriVertex3f(x1, neighborElev, z0);
 
-                rlVertex3f(x1, elev, z0);
-                rlVertex3f(x1, elev, z1);
-                rlVertex3f(x1, neighborElev, z1);
+                FdTriVertex3f(x1, elev, z0);
+                FdTriVertex3f(x1, elev, z1);
+                FdTriVertex3f(x1, neighborElev, z1);
             } else if (elev < neighborElev) {
-                // Neighbor is higher — draw their cliff facing us
                 Color nBase = (x + 1 < MAP_WIDTH) ? TileBaseColor(map->tiles[z][x + 1]) : base;
                 Color nCliff = { (unsigned char)(nBase.r * 0.5f), (unsigned char)(nBase.g * 0.5f),
                                  (unsigned char)(nBase.b * 0.5f), 255 };
-                rlColor4ub(nCliff.r, nCliff.g, nCliff.b, 255);
-                rlVertex3f(x1, neighborElev, z0);
-                rlVertex3f(x1, elev, z0);
-                rlVertex3f(x1, elev, z1);
+                FdTriColor4ub(nCliff.r, nCliff.g, nCliff.b, 255);
+                FdTriVertex3f(x1, neighborElev, z0);
+                FdTriVertex3f(x1, elev, z0);
+                FdTriVertex3f(x1, elev, z1);
 
-                rlVertex3f(x1, neighborElev, z0);
-                rlVertex3f(x1, elev, z1);
-                rlVertex3f(x1, neighborElev, z1);
+                FdTriVertex3f(x1, neighborElev, z0);
+                FdTriVertex3f(x1, elev, z1);
+                FdTriVertex3f(x1, neighborElev, z1);
             }
 
             // Check bottom neighbor (z+1)
@@ -746,54 +736,54 @@ void MapDraw(const Map *map)
                 neighborElev = 0.0f;
 
             if (elev > neighborElev) {
-                rlColor4ub(cliff.r, cliff.g, cliff.b, 255);
-                rlVertex3f(x0, elev, z1);
-                rlVertex3f(x0, neighborElev, z1);
-                rlVertex3f(x1, neighborElev, z1);
+                FdTriColor4ub(cliff.r, cliff.g, cliff.b, 255);
+                FdTriVertex3f(x0, elev, z1);
+                FdTriVertex3f(x0, neighborElev, z1);
+                FdTriVertex3f(x1, neighborElev, z1);
 
-                rlVertex3f(x0, elev, z1);
-                rlVertex3f(x1, neighborElev, z1);
-                rlVertex3f(x1, elev, z1);
+                FdTriVertex3f(x0, elev, z1);
+                FdTriVertex3f(x1, neighborElev, z1);
+                FdTriVertex3f(x1, elev, z1);
             } else if (elev < neighborElev) {
                 Color nBase = (z + 1 < MAP_HEIGHT) ? TileBaseColor(map->tiles[z + 1][x]) : base;
                 Color nCliff = { (unsigned char)(nBase.r * 0.5f), (unsigned char)(nBase.g * 0.5f),
                                  (unsigned char)(nBase.b * 0.5f), 255 };
-                rlColor4ub(nCliff.r, nCliff.g, nCliff.b, 255);
-                rlVertex3f(x0, neighborElev, z1);
-                rlVertex3f(x1, elev, z1);
-                rlVertex3f(x0, elev, z1);
+                FdTriColor4ub(nCliff.r, nCliff.g, nCliff.b, 255);
+                FdTriVertex3f(x0, neighborElev, z1);
+                FdTriVertex3f(x1, elev, z1);
+                FdTriVertex3f(x0, elev, z1);
 
-                rlVertex3f(x0, neighborElev, z1);
-                rlVertex3f(x1, neighborElev, z1);
-                rlVertex3f(x1, elev, z1);
+                FdTriVertex3f(x0, neighborElev, z1);
+                FdTriVertex3f(x1, neighborElev, z1);
+                FdTriVertex3f(x1, elev, z1);
             }
 
             // Check left neighbor (x-1) — only needed for edge at x=0
             if (x == 0 && elev > 0.0f) {
-                rlColor4ub(cliff.r, cliff.g, cliff.b, 255);
-                rlVertex3f(x0, elev, z1);
-                rlVertex3f(x0, 0.0f, z0);
-                rlVertex3f(x0, 0.0f, z1);
+                FdTriColor4ub(cliff.r, cliff.g, cliff.b, 255);
+                FdTriVertex3f(x0, elev, z1);
+                FdTriVertex3f(x0, 0.0f, z0);
+                FdTriVertex3f(x0, 0.0f, z1);
 
-                rlVertex3f(x0, elev, z1);
-                rlVertex3f(x0, elev, z0);
-                rlVertex3f(x0, 0.0f, z0);
+                FdTriVertex3f(x0, elev, z1);
+                FdTriVertex3f(x0, elev, z0);
+                FdTriVertex3f(x0, 0.0f, z0);
             }
 
             // Check top neighbor (z=0) — only needed for edge at z=0
             if (z == 0 && elev > 0.0f) {
-                rlColor4ub(cliff.r, cliff.g, cliff.b, 255);
-                rlVertex3f(x0, elev, z0);
-                rlVertex3f(x1, 0.0f, z0);
-                rlVertex3f(x0, 0.0f, z0);
+                FdTriColor4ub(cliff.r, cliff.g, cliff.b, 255);
+                FdTriVertex3f(x0, elev, z0);
+                FdTriVertex3f(x1, 0.0f, z0);
+                FdTriVertex3f(x0, 0.0f, z0);
 
-                rlVertex3f(x0, elev, z0);
-                rlVertex3f(x1, elev, z0);
-                rlVertex3f(x1, 0.0f, z0);
+                FdTriVertex3f(x0, elev, z0);
+                FdTriVertex3f(x1, elev, z0);
+                FdTriVertex3f(x1, 0.0f, z0);
             }
         }
     }
-    rlEnd();
+    FdEndTriangles();
 
     // Pass 3: Obstacle cubes positioned on top of elevation
     for (int z = 0; z < MAP_HEIGHT; z++) {
@@ -805,7 +795,7 @@ void MapDraw(const Map *map)
                     elev + 0.25f,
                     z * TILE_SIZE + TILE_SIZE * 0.5f,
                 };
-                DrawCubeV(pos, (Vector3){ 0.6f, 0.5f, 0.6f }, DARKGRAY);
+                FdDrawCube(pos, (Vector3){ 0.6f, 0.5f, 0.6f }, DARKGRAY);
             }
         }
     }

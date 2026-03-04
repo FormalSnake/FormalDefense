@@ -1,7 +1,7 @@
 #ifndef MAP_H
 #define MAP_H
 
-#include "raylib.h"
+#include "fd_math.h"
 #include <stdbool.h>
 
 #define MAP_WIDTH 20
@@ -51,13 +51,14 @@ void MapDraw(const Map *map);
 
 // --- Pre-baked Map Mesh (GPU-cached geometry) ---
 
+typedef struct FdMesh FdMesh;
+
 typedef struct {
-    Mesh mesh;
-    Material material;
+    FdMesh *mesh;
     bool ready;
 } MapMesh;
 
-void MapBuildMesh(MapMesh *mm, const Map *map, Shader ps1Shader);
+void MapBuildMesh(MapMesh *mm, const Map *map);
 void MapDrawMesh(const MapMesh *mm);
 void MapFreeMesh(MapMesh *mm);
 

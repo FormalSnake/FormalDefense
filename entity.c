@@ -1,6 +1,6 @@
 #include "entity.h"
 #include "game.h"
-#include "raymath.h"
+#include "fd_gfx.h"
 #include <math.h>
 #include <string.h>
 
@@ -175,17 +175,16 @@ void EnemiesUpdate(Enemy enemies[], int maxEnemies, const Map *map, GameState *g
     }
 }
 
-void EnemiesDraw(const Enemy enemies[], int maxEnemies, Model sphereModel)
+void EnemiesDraw(const Enemy enemies[], int maxEnemies)
 {
     for (int i = 0; i < maxEnemies; i++) {
         if (!enemies[i].active) continue;
         const Enemy *e = &enemies[i];
-        sphereModel.materials[0].maps[MATERIAL_MAP_DIFFUSE].color = e->color;
-        DrawModel(sphereModel, e->worldPos, e->radius, WHITE);
+        FdDrawSphere(e->worldPos, e->radius, e->color);
     }
 }
 
-void EnemiesDrawHUD(const Enemy enemies[], int maxEnemies, Camera3D camera)
+void EnemiesDrawHUD(const Enemy enemies[], int maxEnemies, FdMat4 vp, int screenW, int screenH)
 {
     for (int i = 0; i < maxEnemies; i++) {
         if (!enemies[i].active) continue;
@@ -193,15 +192,15 @@ void EnemiesDrawHUD(const Enemy enemies[], int maxEnemies, Camera3D camera)
 
         Vector3 barPos = e->worldPos;
         barPos.y += e->radius + 0.4f;
-        Vector2 screen = GetWorldToScreen(barPos, camera);
+        Vector2 screen = FdWorldToScreen(barPos, vp, screenW, screenH);
 
         float barW = 30.0f;
         float barH = 4.0f;
         float hpRatio = e->hp / e->maxHp;
         Color barCol = hpRatio > 0.5f ? GREEN : (hpRatio > 0.25f ? YELLOW : RED);
 
-        DrawRectangle((int)(screen.x - barW / 2), (int)screen.y, (int)barW, (int)barH, DARKGRAY);
-        DrawRectangle((int)(screen.x - barW / 2), (int)screen.y, (int)(barW * hpRatio), (int)barH, barCol);
+        FdDrawRect((int)(screen.x - barW / 2), (int)screen.y, (int)barW, (int)barH, DARKGRAY);
+        FdDrawRect((int)(screen.x - barW / 2), (int)screen.y, (int)(barW * hpRatio), (int)barH, barCol);
     }
 }
 
@@ -292,14 +291,14 @@ void TowersDraw(const Tower towers[], int maxTowers, int playerCount)
         const Tower *t = &towers[i];
         const TowerConfig *cfg = &TOWER_CONFIGS[t->type][t->level];
 
-        DrawCubeV(t->worldPos, (Vector3){ 0.7f, 0.7f, 0.7f }, cfg->color);
+        FdDrawCube(t->worldPos, (Vector3){ 0.7f, 0.7f, 0.7f }, cfg->color);
 
         if (playerCount > 1) {
             // Tint wireframe with player color in multiplayer
-            DrawCubeWiresV(t->worldPos, (Vector3){ 0.72f, 0.72f, 0.72f },
-                          PLAYER_COLORS[t->ownerPlayer]);
+            FdDrawCubeWires(t->worldPos, (Vector3){ 0.72f, 0.72f, 0.72f },
+                           PLAYER_COLORS[t->ownerPlayer]);
         } else {
-            DrawCubeWiresV(t->worldPos, (Vector3){ 0.72f, 0.72f, 0.72f }, BLACK);
+            FdDrawCubeWires(t->worldPos, (Vector3){ 0.72f, 0.72f, 0.72f }, BLACK);
         }
     }
 }
@@ -384,11 +383,10 @@ void ProjectilesUpdate(Projectile projectiles[], int maxProjectiles,
     }
 }
 
-void ProjectilesDraw(const Projectile projectiles[], int maxProjectiles, Model sphereModel)
+void ProjectilesDraw(const Projectile projectiles[], int maxProjectiles)
 {
     for (int i = 0; i < maxProjectiles; i++) {
         if (!projectiles[i].active) continue;
-        sphereModel.materials[0].maps[MATERIAL_MAP_DIFFUSE].color = projectiles[i].color;
-        DrawModel(sphereModel, projectiles[i].position, 0.1f, WHITE);
+        FdDrawSphere(projectiles[i].position, 0.1f, projectiles[i].color);
     }
 }
