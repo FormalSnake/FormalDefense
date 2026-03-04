@@ -187,16 +187,17 @@ int MapSerialize(const Map *map, char *buf, int bufSize)
 
 // --- Save to file ---
 
-void MapSave(const Map *map, const char *filePath)
+bool MapSave(const Map *map, const char *filePath)
 {
     char buf[4096];
     int len = MapSerialize(map, buf, sizeof(buf));
-    if (len <= 0) return;
+    if (len <= 0) return false;
 
     FILE *f = fopen(filePath, "w");
-    if (!f) return;
+    if (!f) return false;
     fwrite(buf, 1, len, f);
     fclose(f);
+    return true;
 }
 
 // --- Parse from buffer ---

@@ -2,6 +2,8 @@
 #include "map.h"
 #include <string.h>
 #include <stdio.h>
+#include <unistd.h>
+#include <ctype.h>
 
 // --- Editor Tool ---
 
@@ -26,18 +28,59 @@ typedef struct {
     EditorTool tool;
     bool dirty;
     char savePath[256];
-    int savePathLen;
     bool editingName;
-    bool editingPath;
+
+    char toastMsg[128];
+    float toastTimer;
+    Color toastColor;
+
+    bool confirmOverwrite;
 } EditorState;
+
+static void EditorUpdateSavePath(EditorState *ed)
+{
+    if (ed->map.name[0] == '\0') {
+        ed->savePath[0] = '\0';
+        return;
+    }
+
+    char slug[128];
+    int j = 0;
+    for (int i = 0; ed->map.name[i] && j < (int)sizeof(slug) - 1; i++) {
+        char ch = ed->map.name[i];
+        if (ch == ' ' || ch == '_') {
+            if (j > 0 && slug[j - 1] != '-')
+                slug[j++] = '-';
+        } else if (isalnum((unsigned char)ch) || ch == '-') {
+            slug[j++] = (char)tolower((unsigned char)ch);
+        }
+    }
+    // Strip trailing hyphen
+    while (j > 0 && slug[j - 1] == '-') j--;
+    slug[j] = '\0';
+
+    if (j == 0) {
+        ed->savePath[0] = '\0';
+        return;
+    }
+
+    snprintf(ed->savePath, sizeof(ed->savePath), "maps/%s.fdmap", slug);
+}
+
+static void EditorShowToast(EditorState *ed, const char *msg, Color color)
+{
+    strncpy(ed->toastMsg, msg, sizeof(ed->toastMsg) - 1);
+    ed->toastMsg[sizeof(ed->toastMsg) - 1] = '\0';
+    ed->toastTimer = 3.0f;
+    ed->toastColor = color;
+}
 
 static void EditorInit(EditorState *ed)
 {
     memset(ed, 0, sizeof(*ed));
     MapInit(&ed->map);
     ed->tool = TOOL_EMPTY;
-    strncpy(ed->savePath, "maps/default.fdmap", sizeof(ed->savePath) - 1);
-    ed->savePathLen = (int)strlen(ed->savePath);
+    EditorUpdateSavePath(ed);
 }
 
 // --- Text Input ---
@@ -89,24 +132,25 @@ int main(void)
     EditorInit(&ed);
 
     // Try loading default map
-    MapLoad(&ed.map, "maps/default.fdmap");
+    if (MapLoad(&ed.map, "maps/default.fdmap"))
+        EditorUpdateSavePath(&ed);
 
     while (!WindowShouldClose())
     {
         Vector2 mouse = GetMousePosition();
 
+        // Update toast timer
+        if (ed.toastTimer > 0.0f)
+            ed.toastTimer -= GetFrameTime();
+
         // --- Text input ---
         if (ed.editingName) {
             int nameLen = (int)strlen(ed.map.name);
             HandleTextInput(ed.map.name, &nameLen, MAX_MAP_NAME - 1);
-            if (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_TAB)) {
-                ed.editingName = false;
-                ed.editingPath = true;
-            }
-        } else if (ed.editingPath) {
-            HandleTextInput(ed.savePath, &ed.savePathLen, 255);
+            EditorUpdateSavePath(&ed);
+            ed.confirmOverwrite = false;
             if (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_TAB))
-                ed.editingPath = false;
+                ed.editingName = false;
         }
 
         // --- Grid interaction ---
@@ -116,7 +160,7 @@ int main(void)
                       gridMouseZ >= 0 && gridMouseZ < MAP_HEIGHT &&
                       mouse.x >= GRID_OFFSET_X && mouse.y >= GRID_OFFSET_Y;
 
-        if (inGrid && !ed.editingName && !ed.editingPath) {
+        if (inGrid && !ed.editingName) {
             if (IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
                 switch (ed.tool) {
                 case TOOL_EMPTY:
@@ -346,8 +390,20 @@ int main(void)
         DrawRectangleLinesEx(saveBtn, 1, (Color){ 80, 120, 80, 200 });
         DrawText("Save", tpX + 8, tpY + 7, 16, WHITE);
         if (saveHover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-            MapSave(&ed.map, ed.savePath);
-            ed.dirty = false;
+            if (ed.savePath[0] == '\0') {
+                EditorShowToast(&ed, "Enter a map name first", RED);
+            } else if (!ed.confirmOverwrite && access(ed.savePath, F_OK) == 0) {
+                ed.confirmOverwrite = true;
+                EditorShowToast(&ed, "File exists -- click Save again to overwrite", YELLOW);
+            } else {
+                ed.confirmOverwrite = false;
+                if (MapSave(&ed.map, ed.savePath)) {
+                    EditorShowToast(&ed, TextFormat("Saved to %s", ed.savePath), GREEN);
+                    ed.dirty = false;
+                } else {
+                    EditorShowToast(&ed, "Save failed!", RED);
+                }
+            }
         }
         tpY += 34;
 
@@ -358,8 +414,15 @@ int main(void)
         DrawRectangleLinesEx(loadBtn, 1, (Color){ 80, 80, 120, 200 });
         DrawText("Load", tpX + 8, tpY + 7, 16, WHITE);
         if (loadHover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-            if (MapLoad(&ed.map, ed.savePath))
+            if (ed.savePath[0] == '\0') {
+                EditorShowToast(&ed, "Enter a map name first", RED);
+            } else if (MapLoad(&ed.map, ed.savePath)) {
+                EditorUpdateSavePath(&ed);
                 ed.dirty = false;
+                EditorShowToast(&ed, TextFormat("Loaded %s", ed.savePath), GREEN);
+            } else {
+                EditorShowToast(&ed, TextFormat("Failed to load %s", ed.savePath), RED);
+            }
         }
         tpY += 34;
 
@@ -390,18 +453,18 @@ int main(void)
         DrawText(ed.map.name, GRID_OFFSET_X + 54, statusY, 16, WHITE);
         if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
             ed.editingName = CheckCollisionPointRec(mouse, nameBox);
-            if (ed.editingName) ed.editingPath = false;
         }
 
-        // Save path
-        DrawText("Path:", GRID_OFFSET_X + 270, statusY, 16, LIGHTGRAY);
-        Rectangle pathBox = { (float)(GRID_OFFSET_X + 320), (float)statusY - 2, 300.0f, 22.0f };
-        DrawRectangleRec(pathBox, (Color){ 25, 25, 30, 255 });
-        DrawRectangleLinesEx(pathBox, 1,
-            ed.editingPath ? (Color){ 100, 200, 100, 255 } : (Color){ 60, 60, 60, 255 });
-        DrawText(ed.savePath, GRID_OFFSET_X + 324, statusY, 16, WHITE);
-        if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && !ed.editingName) {
-            ed.editingPath = CheckCollisionPointRec(mouse, pathBox);
+        // Derived save path (read-only)
+        const char *pathDisplay = ed.savePath[0] ? TextFormat("-> %s", ed.savePath) : "-> (enter a name)";
+        DrawText(pathDisplay, GRID_OFFSET_X + 270, statusY, 16, (Color){ 120, 120, 120, 255 });
+
+        // Toast message
+        if (ed.toastTimer > 0.0f) {
+            float alpha = ed.toastTimer < 1.0f ? ed.toastTimer : 1.0f;
+            Color tc = ed.toastColor;
+            tc.a = (unsigned char)(alpha * 255);
+            DrawText(ed.toastMsg, GRID_OFFSET_X, statusY + 50, 16, tc);
         }
 
         // Status info

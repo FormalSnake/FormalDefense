@@ -62,7 +62,7 @@ void MapDrawMesh(const MapMesh *mm);
 void MapFreeMesh(MapMesh *mm);
 
 bool MapLoad(Map *map, const char *filePath);
-void MapSave(const Map *map, const char *filePath);
+bool MapSave(const Map *map, const char *filePath);
 bool MapLoadFromBuffer(Map *map, const char *data, int len);
 int MapSerialize(const Map *map, char *buf, int bufSize);
 
