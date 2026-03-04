@@ -7,6 +7,10 @@
 #include <math.h>
 #include <string.h>
 
+// --- Scene ---
+
+typedef enum { SCENE_MENU, SCENE_GAME } Scene;
+
 // --- Camera Controller ---
 
 typedef struct {
@@ -193,7 +197,19 @@ static void DrawSkybox(Camera3D camera)
 int main(void)
 {
     InitWindow(1280, 720, "Formal Defense");
+    SetExitKey(0);
     SetTargetFPS(60);
+
+    Scene currentScene = SCENE_MENU;
+
+    // --- Menu state ---
+    Map menuMap;
+    MapInit(&menuMap);
+    CameraController menuCamCtrl;
+    CameraControllerInit(&menuCamCtrl);
+    menuCamCtrl.distance = 22.0f;
+    Camera3D menuCamera = {0};
+    CameraControllerUpdate(&menuCamCtrl, &menuCamera, 0.0f);
 
     Map map;
     MapInit(&map);
@@ -225,6 +241,78 @@ int main(void)
         int screenW = GetScreenWidth();
         int screenH = GetScreenHeight();
         Vector2 mouse = GetMousePosition();
+
+        switch (currentScene) {
+        case SCENE_MENU: {
+            // --- Auto-rotate camera ---
+            menuCamCtrl.yaw += 8.0f * dt;
+            float yawRad = menuCamCtrl.yaw * DEG2RAD;
+            float pitchRad = menuCamCtrl.pitch * DEG2RAD;
+            menuCamera.position = (Vector3){
+                menuCamCtrl.target.x + menuCamCtrl.distance * cosf(pitchRad) * sinf(yawRad),
+                menuCamCtrl.target.y + menuCamCtrl.distance * sinf(pitchRad),
+                menuCamCtrl.target.z + menuCamCtrl.distance * cosf(pitchRad) * cosf(yawRad),
+            };
+            menuCamera.target = menuCamCtrl.target;
+            menuCamera.up = (Vector3){ 0.0f, 1.0f, 0.0f };
+            menuCamera.fovy = 45.0f;
+            menuCamera.projection = CAMERA_PERSPECTIVE;
+
+            // --- Draw menu ---
+            BeginDrawing();
+            ClearBackground((Color){ 30, 30, 35, 255 });
+
+            BeginMode3D(menuCamera);
+                DrawSkybox(menuCamera);
+                MapDraw(&menuMap);
+            EndMode3D();
+
+            // Dark overlay
+            DrawRectangle(0, 0, screenW, screenH, (Color){ 0, 0, 0, 120 });
+
+            // Title
+            const char *title = "Formal Defense";
+            int titleSize = 60;
+            int titleW = MeasureText(title, titleSize);
+            DrawText(title, (screenW - titleW) / 2, screenH / 2 - 100, titleSize, WHITE);
+
+            // Subtitle
+            const char *subtitle = "Tower Defense";
+            int subtitleSize = 24;
+            int subtitleW = MeasureText(subtitle, subtitleSize);
+            DrawText(subtitle, (screenW - subtitleW) / 2, screenH / 2 - 35, subtitleSize, LIGHTGRAY);
+
+            // Play button
+            int pbW = 180, pbH = 50;
+            int pbX = (screenW - pbW) / 2;
+            int pbY = screenH / 2 + 20;
+            Rectangle playBtn = { (float)pbX, (float)pbY, (float)pbW, (float)pbH };
+            bool playHover = CheckCollisionPointRec(mouse, playBtn);
+            Color playBg = playHover ? (Color){ 60, 120, 60, 255 } : (Color){ 40, 80, 40, 255 };
+            DrawRectangleRec(playBtn, playBg);
+            DrawRectangleLinesEx(playBtn, 2, (Color){ 100, 200, 100, 200 });
+            const char *playText = "Play";
+            int playTextW = MeasureText(playText, 30);
+            DrawText(playText, pbX + (pbW - playTextW) / 2, pbY + 10, 30, WHITE);
+
+            EndDrawing();
+
+            // Play button click
+            if (playHover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+                MapInit(&map);
+                GameStateInit(&gs);
+                memset(enemies, 0, sizeof(enemies));
+                memset(towers, 0, sizeof(towers));
+                memset(projectiles, 0, sizeof(projectiles));
+                CameraControllerInit(&camCtrl);
+                CameraControllerUpdate(&camCtrl, &camera, 0.0f);
+                selectedTowerType = -1;
+                selectedTowerIdx = -1;
+                currentScene = SCENE_GAME;
+            }
+        } break;
+
+        case SCENE_GAME: {
 
         // --- UI hit test (bottom bar takes priority) ---
         bool mouseInUI = (mouse.y >= screenH - BOTTOM_BAR_HEIGHT);
@@ -474,9 +562,22 @@ int main(void)
             int subW = MeasureText(sub, 24);
             DrawText(sub, (screenW - subW) / 2, screenH / 2 + 20, 24, WHITE);
 
-            const char *hint = "Press R to restart or ESC to quit";
+            const char *hint = "Press R to restart | ESC for Main Menu";
             int hintW = MeasureText(hint, 18);
             DrawText(hint, (screenW - hintW) / 2, screenH / 2 + 60, 18, LIGHTGRAY);
+
+            // Main Menu button
+            int mbW = 180, mbH = 40;
+            int mbX = (screenW - mbW) / 2;
+            int mbY = screenH / 2 + 95;
+            Rectangle menuBtn = { (float)mbX, (float)mbY, (float)mbW, (float)mbH };
+            bool menuHover = CheckCollisionPointRec(mouse, menuBtn);
+            Color menuBg = menuHover ? (Color){ 80, 80, 100, 255 } : (Color){ 50, 50, 65, 255 };
+            DrawRectangleRec(menuBtn, menuBg);
+            DrawRectangleLinesEx(menuBtn, 2, (Color){ 120, 120, 160, 200 });
+            const char *menuText = "Main Menu";
+            int menuTextW = MeasureText(menuText, 22);
+            DrawText(menuText, mbX + (mbW - menuTextW) / 2, mbY + 9, 22, WHITE);
         }
 
         EndDrawing();
@@ -491,6 +592,22 @@ int main(void)
             selectedTowerType = -1;
             selectedTowerIdx = -1;
         }
+
+        // --- Back to menu ---
+        if (gs.phase == PHASE_OVER) {
+            bool goMenu = IsKeyPressed(KEY_ESCAPE);
+            Rectangle menuBtn = { (float)((screenW - 180) / 2), (float)(screenH / 2 + 95), 180.0f, 40.0f };
+            if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && CheckCollisionPointRec(mouse, menuBtn))
+                goMenu = true;
+            if (goMenu) {
+                MapInit(&menuMap);
+                menuCamCtrl.yaw = 0.0f;
+                currentScene = SCENE_MENU;
+            }
+        }
+
+        } break; // end SCENE_GAME
+        } // end switch
     }
 
     CloseWindow();
