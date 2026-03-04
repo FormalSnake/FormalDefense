@@ -103,6 +103,82 @@ static void DrawRangeCircle(Vector3 center, float radius, Color color)
     }
 }
 
+// --- Skybox ---
+
+static void DrawSkybox(Camera3D camera)
+{
+    int slices = 16;
+    int stacks = 8;
+    float radius = 500.0f;
+
+    Color topColor = { 25, 50, 120, 255 };
+    Color botColor = { 135, 190, 235, 255 };
+
+    rlDisableBackfaceCulling();
+    rlDisableDepthMask();
+
+    rlPushMatrix();
+    rlTranslatef(camera.position.x, camera.position.y, camera.position.z);
+
+    rlBegin(RL_TRIANGLES);
+    for (int i = 0; i < stacks; i++) {
+        float phi0 = PI * (float)i / stacks;
+        float phi1 = PI * (float)(i + 1) / stacks;
+        float t0 = 1.0f - (float)i / stacks;       // 1 at top, 0 at bottom
+        float t1 = 1.0f - (float)(i + 1) / stacks;
+
+        unsigned char r0 = (unsigned char)(botColor.r + t0 * (topColor.r - botColor.r));
+        unsigned char g0 = (unsigned char)(botColor.g + t0 * (topColor.g - botColor.g));
+        unsigned char b0 = (unsigned char)(botColor.b + t0 * (topColor.b - botColor.b));
+        unsigned char r1 = (unsigned char)(botColor.r + t1 * (topColor.r - botColor.r));
+        unsigned char g1 = (unsigned char)(botColor.g + t1 * (topColor.g - botColor.g));
+        unsigned char b1 = (unsigned char)(botColor.b + t1 * (topColor.b - botColor.b));
+
+        for (int j = 0; j < slices; j++) {
+            float theta0 = 2.0f * PI * (float)j / slices;
+            float theta1 = 2.0f * PI * (float)(j + 1) / slices;
+
+            float x00 = radius * sinf(phi0) * cosf(theta0);
+            float y00 = radius * cosf(phi0);
+            float z00 = radius * sinf(phi0) * sinf(theta0);
+
+            float x10 = radius * sinf(phi1) * cosf(theta0);
+            float y10 = radius * cosf(phi1);
+            float z10 = radius * sinf(phi1) * sinf(theta0);
+
+            float x01 = radius * sinf(phi0) * cosf(theta1);
+            float y01 = radius * cosf(phi0);
+            float z01 = radius * sinf(phi0) * sinf(theta1);
+
+            float x11 = radius * sinf(phi1) * cosf(theta1);
+            float y11 = radius * cosf(phi1);
+            float z11 = radius * sinf(phi1) * sinf(theta1);
+
+            // Triangle 1: (00, 10, 11)
+            rlColor4ub(r0, g0, b0, 255);
+            rlVertex3f(x00, y00, z00);
+            rlColor4ub(r1, g1, b1, 255);
+            rlVertex3f(x10, y10, z10);
+            rlColor4ub(r1, g1, b1, 255);
+            rlVertex3f(x11, y11, z11);
+
+            // Triangle 2: (00, 11, 01)
+            rlColor4ub(r0, g0, b0, 255);
+            rlVertex3f(x00, y00, z00);
+            rlColor4ub(r1, g1, b1, 255);
+            rlVertex3f(x11, y11, z11);
+            rlColor4ub(r0, g0, b0, 255);
+            rlVertex3f(x01, y01, z01);
+        }
+    }
+    rlEnd();
+
+    rlPopMatrix();
+
+    rlEnableBackfaceCulling();
+    rlEnableDepthMask();
+}
+
 // --- UI Constants ---
 
 #define BOTTOM_BAR_HEIGHT 60
@@ -248,6 +324,7 @@ int main(void)
         ClearBackground((Color){ 30, 30, 35, 255 });
 
         BeginMode3D(camera);
+            DrawSkybox(camera);
             MapDraw(&map);
 
             // Grid hover highlight
