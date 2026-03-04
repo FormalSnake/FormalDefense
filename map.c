@@ -471,22 +471,21 @@ static float CornerShadow(const Map *map, int cx, int cz)
     float len = sqrtf(stepX * stepX + stepZ * stepZ);
     stepX /= len;
     stepZ /= len;
-    // Y rise per horizontal step — scale by ELEVATION_HEIGHT so ray slope
-    // is proportional to terrain heights (0..4 levels × 0.5 each = 0..2.0)
-    float verticalRate = (0.7f / len) * ELEVATION_HEIGHT;
+    // Y rise per horizontal step — low rate for long, dramatic shadows
+    float verticalRate = 0.3f;
 
-    // Corner elevation = average of up to 4 neighboring tiles
-    float elevSum = 0; int elevCount = 0;
+    // Corner elevation = max of neighboring tiles (prevents self-shadowing
+    // at plateau edges where averaging would lower the base)
+    float baseElev = 0.0f;
     for (int dz = -1; dz <= 0; dz++) {
         for (int dx = -1; dx <= 0; dx++) {
             int tx = cx + dx, tz = cz + dz;
             if (tx >= 0 && tx < MAP_WIDTH && tz >= 0 && tz < MAP_HEIGHT) {
-                elevSum += map->elevation[tz][tx] * ELEVATION_HEIGHT;
-                elevCount++;
+                float e = map->elevation[tz][tx] * ELEVATION_HEIGHT;
+                if (e > baseElev) baseElev = e;
             }
         }
     }
-    float baseElev = elevCount > 0 ? elevSum / elevCount : 0.0f;
 
     float fx = (float)cx;
     float fz = (float)cz;
