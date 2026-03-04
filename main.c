@@ -527,8 +527,6 @@ int main(void)
             int backTextW = MeasureText(backText, 22);
             DrawText(backText, sbX + (sbW - backTextW) / 2, bbY + 9, 22, WHITE);
 
-            EndDrawing();
-
             // Handle start click
             if (canStart && startHover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
                 if (mapSelectForMultiplayer) {
@@ -563,6 +561,8 @@ int main(void)
             if ((backHover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) || IsKeyPressed(KEY_ESCAPE)) {
                 currentScene = mapSelectForMultiplayer ? SCENE_LOBBY : SCENE_MENU;
             }
+
+            EndDrawing();
         } break;
 
         case SCENE_LOBBY: {
