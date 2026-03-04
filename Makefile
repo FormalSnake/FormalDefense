@@ -1,15 +1,20 @@
 CC = cc
-CFLAGS = $(shell pkg-config --cflags raylib)
+CFLAGS = -Wall -Wextra $(shell pkg-config --cflags raylib)
 LDFLAGS = $(shell pkg-config --libs raylib)
-TARGET = hello3d
+TARGET = formaldefense
+SRCS = main.c game.c entity.c map.c
+OBJS = $(SRCS:.c=.o)
 
-$(TARGET): main.c
-	$(CC) -o $@ $< $(CFLAGS) $(LDFLAGS)
+$(TARGET): $(OBJS)
+	$(CC) -o $@ $(OBJS) $(LDFLAGS)
+
+%.o: %.c
+	$(CC) $(CFLAGS) -c -o $@ $<
 
 run: $(TARGET)
 	./$(TARGET)
 
 clean:
-	rm -f $(TARGET)
+	rm -f $(TARGET) $(OBJS) hello3d
 
 .PHONY: run clean
