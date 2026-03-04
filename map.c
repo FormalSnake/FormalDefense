@@ -466,7 +466,7 @@ static float TerrainNoise(float x, float z)
 #define MAP_MESH_MAX_TRIS 8192
 
 // --- Island Skirt Constants ---
-#define ISLAND_SKIRT_WIDTH 8
+#define ISLAND_SKIRT_WIDTH 12
 #define ISLAND_WATER_Y -0.3f
 
 // Returns 0.0-1.0 based on noise-perturbed elliptical distance from map center
@@ -492,12 +492,12 @@ static float IslandAlpha(float wx, float wz)
 // Returns vertex Y: terrain noise inland, beach slope near coast, cliff drop below water
 static float SkirtY(float alpha, float wx, float wz)
 {
-    if (alpha >= 0.15f) {
+    if (alpha >= 0.25f) {
         // Inland — use terrain noise
         return TerrainNoise(wx, wz);
     } else if (alpha > 0.0f) {
         // Beach transition — slope down from terrain to near water
-        float t = alpha / 0.15f;
+        float t = alpha / 0.25f;
         float noiseY = TerrainNoise(wx, wz);
         return noiseY * t + 0.05f * (1.0f - t);
     } else {
@@ -509,12 +509,21 @@ static float SkirtY(float alpha, float wx, float wz)
     }
 }
 
-// Returns skirt vertex color: grass, sand/beach, or dark cliff
+// Returns skirt vertex color: smooth grass→sand blend, or dark cliff
 static Color SkirtColor(float alpha, int xi, int zi, int corner)
 {
     Color base;
-    if (alpha > 0.55f) {
-        base = (Color){ 100, 160, 80, 255 };  // grass
+    if (alpha > 0.65f) {
+        base = (Color){ 100, 160, 80, 255 };  // pure grass
+    } else if (alpha > 0.15f) {
+        // Smooth blend from sand to grass across alpha 0.15–0.65
+        float t = (alpha - 0.15f) / (0.65f - 0.15f);
+        base = (Color){
+            (unsigned char)(210 + (100 - 210) * t),
+            (unsigned char)(190 + (160 - 190) * t),
+            (unsigned char)(140 + (80 - 140) * t),
+            255
+        };
     } else if (alpha > 0.0f) {
         base = (Color){ 210, 190, 140, 255 };  // sand/beach
     } else {
@@ -545,6 +554,19 @@ void MapBuildMesh(MapMesh *mm, const Map *map, Shader ps1Shader)
     for (int z = 0; z < MAP_HEIGHT; z++) {
         for (int x = 0; x < MAP_WIDTH; x++) {
             Color base = TileBaseColor(map->tiles[z][x]);
+
+            // Blend tiles near map edge toward sand for smooth transition
+            int edgeDist = x;
+            if (MAP_WIDTH - 1 - x < edgeDist) edgeDist = MAP_WIDTH - 1 - x;
+            if (z < edgeDist) edgeDist = z;
+            if (MAP_HEIGHT - 1 - z < edgeDist) edgeDist = MAP_HEIGHT - 1 - z;
+            if (edgeDist < 3) {
+                float t = edgeDist / 3.0f;  // 0 at edge, 1 at 3 tiles in
+                base.r = (unsigned char)(210 + (base.r - 210) * t);
+                base.g = (unsigned char)(190 + (base.g - 190) * t);
+                base.b = (unsigned char)(140 + (base.b - 140) * t);
+            }
+
             float elev = map->elevation[z][x] * ELEVATION_HEIGHT;
 
             float x0 = x * TILE_SIZE;

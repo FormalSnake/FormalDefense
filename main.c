@@ -177,9 +177,9 @@ static bool waterReady = false;
 
 static void BuildWaterMesh(void)
 {
-    float xMin = -60.0f, xMax = 80.0f;
-    float zMin = -60.0f, zMax = 75.0f;
-    float step = 2.0f;
+    float xMin = -500.0f, xMax = 520.0f;
+    float zMin = -500.0f, zMax = 515.0f;
+    float step = 4.0f;
 
     int xSteps = (int)((xMax - xMin) / step);
     int zSteps = (int)((zMax - zMin) / step);
