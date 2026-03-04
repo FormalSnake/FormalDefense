@@ -7,6 +7,7 @@
 #include "net.h"
 #include "lobby.h"
 #include "chat.h"
+#include "settings.h"
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -315,13 +316,30 @@ static void OnNetChatReceived(uint8_t playerIndex, const char *username, const c
         ChatAddMessage(g_chatStatePtr, playerIndex, username, message);
 }
 
+// --- Settings globals ---
+
+static Settings settings;
+static SettingsState settingsState = {0};
+
 // --- Main ---
 
 int main(void)
 {
-    SetConfigFlags(FLAG_VSYNC_HINT | FLAG_WINDOW_RESIZABLE);
-    InitWindow(1280, 720, "Formal Defense");
+    SettingsDefault(&settings);
+    SettingsLoad(&settings, "settings.cfg");
+
+    int initFlags = FLAG_WINDOW_RESIZABLE;
+    if (settings.vsync) initFlags |= FLAG_VSYNC_HINT;
+    SetConfigFlags(initFlags);
+
+    int initW = RESOLUTION_PRESETS[settings.resolutionIdx].width;
+    int initH = RESOLUTION_PRESETS[settings.resolutionIdx].height;
+    InitWindow(initW, initH, "Formal Defense");
     SetExitKey(0);
+
+    // Apply fullscreen mode after window creation
+    if (settings.fullscreen == FULLSCREEN_BORDERLESS) ToggleBorderlessWindowed();
+    else if (settings.fullscreen == FULLSCREEN_EXCLUSIVE) ToggleFullscreen();
 
     // --- PS1 Shader & Render Target ---
     Shader ps1Shader = LoadShader("shaders/ps1.vs", "shaders/ps1.fs");
@@ -351,8 +369,8 @@ int main(void)
 
     int cachedScreenW = GetScreenWidth();
     int cachedScreenH = GetScreenHeight();
-    int rtW = cachedScreenW / PS1_DOWNSCALE;
-    int rtH = cachedScreenH / PS1_DOWNSCALE;
+    int rtW = cachedScreenW / settings.ps1Downscale;
+    int rtH = cachedScreenH / settings.ps1Downscale;
     RenderTexture2D renderTarget = LoadRenderTexture(rtW, rtH);
     SetTextureFilter(renderTarget.texture, TEXTURE_FILTER_POINT);
 
@@ -422,6 +440,9 @@ int main(void)
 
     CameraController camCtrl;
     CameraControllerInit(&camCtrl);
+    camCtrl.panSpeed = settings.camPanSpeed;
+    camCtrl.rotSpeed = settings.camRotSpeed;
+    camCtrl.zoomSpeed = settings.camZoomSpeed;
 
     Camera3D camera = {0};
     CameraControllerUpdate(&camCtrl, &camera, 0.0f);
@@ -438,15 +459,19 @@ int main(void)
         int screenH = GetScreenHeight();
         Vector2 mouse = GetMousePosition();
 
-        if (IsKeyPressed(KEY_F11)) ToggleBorderlessWindowed();
+        if (IsKeyPressed(KEY_F11)) {
+            ToggleBorderlessWindowed();
+            settings.fullscreen = (settings.fullscreen == FULLSCREEN_BORDERLESS)
+                ? FULLSCREEN_WINDOWED : FULLSCREEN_BORDERLESS;
+        }
 
         // Recreate render target on window resize
         if (screenW != cachedScreenW || screenH != cachedScreenH) {
             cachedScreenW = screenW;
             cachedScreenH = screenH;
             UnloadRenderTexture(renderTarget);
-            rtW = screenW / PS1_DOWNSCALE;
-            rtH = screenH / PS1_DOWNSCALE;
+            rtW = screenW / settings.ps1Downscale;
+            rtH = screenH / settings.ps1Downscale;
             renderTarget = LoadRenderTexture(rtW, rtH);
             SetTextureFilter(renderTarget.texture, TEXTURE_FILTER_POINT);
             resolution[0] = (float)rtW;
@@ -526,8 +551,19 @@ int main(void)
             int mpTextW = MeasureText(mpText, 30);
             DrawText(mpText, pbX + (pbW - mpTextW) / 2, mpY + 10, 30, WHITE);
 
+            // Settings button
+            int stY = mpY + pbH + 15;
+            Rectangle setBtn = { (float)pbX, (float)stY, (float)pbW, (float)pbH };
+            bool setHover = CheckCollisionPointRec(mouse, setBtn);
+            Color setBg = setHover ? (Color){ 70, 55, 110, 255 } : (Color){ 48, 38, 78, 255 };
+            DrawRectangleRec(setBtn, setBg);
+            DrawRectangleLinesEx(setBtn, 2, (Color){ 140, 110, 200, 200 });
+            const char *setText = "Settings";
+            int setTextW = MeasureText(setText, 30);
+            DrawText(setText, pbX + (pbW - setTextW) / 2, stY + 10, 30, WHITE);
+
             // Quit button
-            int qbY = mpY + pbH + 15;
+            int qbY = stY + pbH + 15;
             Rectangle quitBtn = { (float)pbX, (float)qbY, (float)pbW, (float)pbH };
             bool quitHover = CheckCollisionPointRec(mouse, quitBtn);
             Color quitBg = quitHover ? (Color){ 140, 50, 50, 255 } : (Color){ 100, 35, 35, 255 };
@@ -537,11 +573,65 @@ int main(void)
             int quitTextW = MeasureText(quitText, 30);
             DrawText(quitText, pbX + (pbW - quitTextW) / 2, qbY + 10, 30, WHITE);
 
+            // Settings overlay (drawn on top)
+            SettingsDraw(&settingsState, screenW, screenH);
+
             // Copyright & credit
             DrawText("Made by FormalSnake", 10, screenH - 40, 16, LIGHTGRAY);
             DrawText("(c) 2026 FormalSnake", 10, screenH - 22, 14, GRAY);
 
             EndDrawing();
+
+            // Settings update
+            int settingsResult = SettingsUpdate(&settingsState);
+            if (settingsResult == 1) {
+                // Apply settings
+                settings = settingsState.pending;
+                SettingsSave(&settings, "settings.cfg");
+
+                // Recreate render target with new downscale
+                UnloadRenderTexture(renderTarget);
+                rtW = screenW / settings.ps1Downscale;
+                rtH = screenH / settings.ps1Downscale;
+                renderTarget = LoadRenderTexture(rtW, rtH);
+                SetTextureFilter(renderTarget.texture, TEXTURE_FILTER_POINT);
+                resolution[0] = (float)rtW;
+                resolution[1] = (float)rtH;
+                SetShaderValue(ps1Shader, locResolution, resolution, SHADER_UNIFORM_VEC2);
+
+                // VSync
+                if (settings.vsync) SetWindowState(FLAG_VSYNC_HINT);
+                else ClearWindowState(FLAG_VSYNC_HINT);
+
+                // Fullscreen - compare with current state
+                // (simplified: just set window size for windowed)
+                if (settings.fullscreen == FULLSCREEN_WINDOWED) {
+                    if (IsWindowFullscreen()) ToggleFullscreen();
+                    else if (IsWindowState(FLAG_BORDERLESS_WINDOWED_MODE)) ToggleBorderlessWindowed();
+                    SetWindowSize(RESOLUTION_PRESETS[settings.resolutionIdx].width,
+                                  RESOLUTION_PRESETS[settings.resolutionIdx].height);
+                } else if (settings.fullscreen == FULLSCREEN_BORDERLESS) {
+                    if (IsWindowFullscreen()) ToggleFullscreen();
+                    if (!IsWindowState(FLAG_BORDERLESS_WINDOWED_MODE)) ToggleBorderlessWindowed();
+                } else if (settings.fullscreen == FULLSCREEN_EXCLUSIVE) {
+                    if (IsWindowState(FLAG_BORDERLESS_WINDOWED_MODE)) ToggleBorderlessWindowed();
+                    if (!IsWindowFullscreen()) ToggleFullscreen();
+                }
+
+                // Camera speeds
+                camCtrl.panSpeed = settings.camPanSpeed;
+                camCtrl.rotSpeed = settings.camRotSpeed;
+                camCtrl.zoomSpeed = settings.camZoomSpeed;
+            }
+
+            // Skip button clicks when settings overlay is open
+            if (settingsState.open) break;
+
+            // Settings button click
+            if (setHover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+                SettingsOpen(&settingsState, &settings);
+                break;
+            }
 
             // Quit button click
             if (quitHover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
@@ -828,7 +918,7 @@ int main(void)
         ChatUpdate(&chatState, dt);
 
         // --- ESC: deselect, pause, or resume ---
-        if (!chatActive && IsKeyPressed(KEY_ESCAPE)) {
+        if (!chatActive && !settingsState.open && IsKeyPressed(KEY_ESCAPE)) {
             if (netCtx.mode != NET_MODE_NONE) {
                 // Multiplayer: local pause overlay only
                 if (localPaused) {
@@ -1247,8 +1337,19 @@ int main(void)
             int resumeTextW = MeasureText(resumeText, 24);
             DrawText(resumeText, pBtnX + (pBtnW - resumeTextW) / 2, resumeY + 11, 24, WHITE);
 
+            // Settings button
+            int pSetY = resumeY + pBtnH + 12;
+            Rectangle pSetBtn = { (float)pBtnX, (float)pSetY, (float)pBtnW, (float)pBtnH };
+            bool pSetHover = CheckCollisionPointRec(mouse, pSetBtn);
+            Color pSetBg = pSetHover ? (Color){ 70, 55, 110, 255 } : (Color){ 48, 38, 78, 255 };
+            DrawRectangleRec(pSetBtn, pSetBg);
+            DrawRectangleLinesEx(pSetBtn, 2, (Color){ 140, 110, 200, 200 });
+            const char *pSetText = "Settings";
+            int pSetTextW = MeasureText(pSetText, 24);
+            DrawText(pSetText, pBtnX + (pBtnW - pSetTextW) / 2, pSetY + 11, 24, WHITE);
+
             // Main Menu button
-            int pmMenuY = resumeY + pBtnH + 12;
+            int pmMenuY = pSetY + pBtnH + 12;
             Rectangle pmMenuBtn = { (float)pBtnX, (float)pmMenuY, (float)pBtnW, (float)pBtnH };
             bool pmMenuHover = CheckCollisionPointRec(mouse, pmMenuBtn);
             Color pmMenuBg = pmMenuHover ? (Color){ 80, 80, 100, 255 } : (Color){ 50, 50, 65, 255 };
@@ -1268,6 +1369,9 @@ int main(void)
             const char *pQuitText = "Quit";
             int pQuitTextW = MeasureText(pQuitText, 24);
             DrawText(pQuitText, pBtnX + (pBtnW - pQuitTextW) / 2, pQuitY + 11, 24, WHITE);
+
+            // Settings overlay on top of pause menu
+            SettingsDraw(&settingsState, screenW, screenH);
         }
 
         // --- Chat overlay ---
@@ -1310,22 +1414,64 @@ int main(void)
 
         EndDrawing();
 
-        // --- Pause menu button clicks ---
+        // --- Pause menu: settings update ---
         if (gs.phase == PHASE_PAUSED || localPaused) {
+            int pauseSettingsResult = SettingsUpdate(&settingsState);
+            if (pauseSettingsResult == 1) {
+                settings = settingsState.pending;
+                SettingsSave(&settings, "settings.cfg");
+
+                UnloadRenderTexture(renderTarget);
+                rtW = screenW / settings.ps1Downscale;
+                rtH = screenH / settings.ps1Downscale;
+                renderTarget = LoadRenderTexture(rtW, rtH);
+                SetTextureFilter(renderTarget.texture, TEXTURE_FILTER_POINT);
+                resolution[0] = (float)rtW;
+                resolution[1] = (float)rtH;
+                SetShaderValue(ps1Shader, locResolution, resolution, SHADER_UNIFORM_VEC2);
+
+                if (settings.vsync) SetWindowState(FLAG_VSYNC_HINT);
+                else ClearWindowState(FLAG_VSYNC_HINT);
+
+                if (settings.fullscreen == FULLSCREEN_WINDOWED) {
+                    if (IsWindowFullscreen()) ToggleFullscreen();
+                    else if (IsWindowState(FLAG_BORDERLESS_WINDOWED_MODE)) ToggleBorderlessWindowed();
+                    SetWindowSize(RESOLUTION_PRESETS[settings.resolutionIdx].width,
+                                  RESOLUTION_PRESETS[settings.resolutionIdx].height);
+                } else if (settings.fullscreen == FULLSCREEN_BORDERLESS) {
+                    if (IsWindowFullscreen()) ToggleFullscreen();
+                    if (!IsWindowState(FLAG_BORDERLESS_WINDOWED_MODE)) ToggleBorderlessWindowed();
+                } else if (settings.fullscreen == FULLSCREEN_EXCLUSIVE) {
+                    if (IsWindowState(FLAG_BORDERLESS_WINDOWED_MODE)) ToggleBorderlessWindowed();
+                    if (!IsWindowFullscreen()) ToggleFullscreen();
+                }
+
+                camCtrl.panSpeed = settings.camPanSpeed;
+                camCtrl.rotSpeed = settings.camRotSpeed;
+                camCtrl.zoomSpeed = settings.camZoomSpeed;
+            }
+        }
+
+        // --- Pause menu button clicks ---
+        if ((gs.phase == PHASE_PAUSED || localPaused) && !settingsState.open) {
             if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
                 int pBtnW = 200, pBtnH = 45;
                 int pBtnX = (screenW - pBtnW) / 2;
                 int resumeY = screenH / 2 - 20;
-                int pmMenuY = resumeY + pBtnH + 12;
+                int pSetY = resumeY + pBtnH + 12;
+                int pmMenuY = pSetY + pBtnH + 12;
                 int pQuitY = pmMenuY + pBtnH + 12;
 
                 Rectangle resumeBtn = { (float)pBtnX, (float)resumeY, (float)pBtnW, (float)pBtnH };
+                Rectangle pSetBtn = { (float)pBtnX, (float)pSetY, (float)pBtnW, (float)pBtnH };
                 Rectangle pmMenuBtn = { (float)pBtnX, (float)pmMenuY, (float)pBtnW, (float)pBtnH };
                 Rectangle pQuitBtn = { (float)pBtnX, (float)pQuitY, (float)pBtnW, (float)pBtnH };
 
                 if (CheckCollisionPointRec(mouse, resumeBtn)) {
                     if (localPaused) localPaused = false;
                     else gs.phase = phaseBeforePause;
+                } else if (CheckCollisionPointRec(mouse, pSetBtn)) {
+                    SettingsOpen(&settingsState, &settings);
                 } else if (CheckCollisionPointRec(mouse, pmMenuBtn)) {
                     localPaused = false;
                     if (netCtx.mode != NET_MODE_NONE) {
