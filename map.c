@@ -58,21 +58,67 @@ void MapInit(Map *map)
 
     MapTracePath(map);
 
-    // Add some elevation for visual interest
-    // Raised plateau near center
-    for (int ez = 3; ez <= 5; ez++)
-        for (int ex = 5; ex <= 7; ex++)
-            map->elevation[ez][ex] = 2;
-    // Hill near end of path
-    for (int ez = 9; ez <= 11; ez++)
-        for (int ex = 15; ex <= 17; ex++)
+    // --- Elevation layout ---
+
+    // Top-left rolling hills (z:0-4, x:0-6)
+    for (int ez = 0; ez <= 3; ez++)
+        for (int ex = 0; ex <= 3; ex++)
             map->elevation[ez][ex] = 1;
-    // Single high tile
+    for (int ez = 1; ez <= 2; ez++)
+        for (int ex = 1; ex <= 2; ex++)
+            map->elevation[ez][ex] = 2;
+    map->elevation[0][5] = 1;
+    map->elevation[0][6] = 1;
+    map->elevation[1][5] = 1;
+
+    // Central ridge / plateau (z:5-7, x:9-12) — cliffs alongside path
+    for (int ez = 5; ez <= 7; ez++)
+        for (int ex = 9; ex <= 12; ex++)
+            map->elevation[ez][ex] = 2;
+    map->elevation[5][10] = 3;
+    map->elevation[5][11] = 3;
+    map->elevation[6][10] = 3;
+    map->elevation[6][11] = 3;
+
+    // Slope leading up to central ridge
+    map->elevation[4][9] = 1;
+    map->elevation[4][10] = 1;
+    map->elevation[4][11] = 1;
+    map->elevation[4][12] = 1;
+    map->elevation[8][9] = 1;
+    map->elevation[8][10] = 1;
+
+    // Bottom-right mesa (z:10-13, x:14-18)
+    for (int ez = 10; ez <= 13; ez++)
+        for (int ex = 14; ex <= 18; ex++)
+            map->elevation[ez][ex] = 1;
+    for (int ez = 11; ez <= 12; ez++)
+        for (int ex = 15; ex <= 17; ex++)
+            map->elevation[ez][ex] = 2;
+
+    // Scattered peaks for visual interest
     map->elevation[1][10] = 3;
+    map->elevation[2][15] = 2;
+    map->elevation[3][16] = 1;
+    map->elevation[9][1] = 1;
+    map->elevation[9][2] = 2;
+    map->elevation[13][5] = 1;
+    map->elevation[13][6] = 1;
+    map->elevation[0][14] = 1;
+    map->elevation[0][15] = 2;
+    map->elevation[0][16] = 1;
+
+    // Ridge near bottom-left
+    map->elevation[12][1] = 1;
+    map->elevation[12][2] = 2;
+    map->elevation[12][3] = 1;
+    map->elevation[11][2] = 1;
 
     GridPos obstacles[] = {
         {2, 4}, {2, 10}, {6, 6}, {6, 9}, {10, 1}, {10, 8},
         {14, 7}, {14, 13}, {17, 2}, {17, 7}, {3, 13}, {11, 6},
+        // Obstacles on elevated terrain
+        {1, 1}, {2, 2}, {10, 5}, {11, 7}, {15, 11}, {16, 12},
     };
     int obsCount = sizeof(obstacles) / sizeof(obstacles[0]);
     for (int i = 0; i < obsCount; i++) {
@@ -363,12 +409,52 @@ static Color TileBaseColor(TileType t)
     }
 }
 
-// Tiny deterministic Y jitter per corner for organic feel
-static float CornerJitter(int x, int z, int corner)
+// 2D gradient noise for smooth terrain undulation (fixes seams between tiles)
+static const unsigned char perm[256] = {
+    151,160,137,91,90,15,131,13,201,95,96,53,194,233,7,225,140,36,103,30,
+    69,142,8,99,37,240,21,10,23,190,6,148,247,120,234,75,0,26,197,62,
+    94,252,219,203,117,35,11,32,57,177,33,88,237,149,56,87,174,20,125,136,
+    171,168,68,175,74,165,71,134,139,48,27,166,77,146,158,231,83,111,229,122,
+    60,211,133,230,220,105,92,41,55,46,245,40,244,102,143,54,65,25,63,161,
+    1,216,80,73,209,76,132,187,208,89,18,169,200,196,135,130,116,188,159,86,
+    164,100,109,198,173,186,3,64,52,217,226,250,124,123,5,202,38,147,118,126,
+    255,82,85,212,207,206,59,227,47,16,58,17,182,189,28,42,223,183,170,213,
+    119,248,152,2,44,154,163,70,221,153,101,155,167,43,172,9,129,22,39,253,
+    19,98,108,110,79,113,224,232,178,185,112,104,218,246,97,228,251,34,242,193,
+    238,210,144,12,191,179,162,241,81,51,145,235,249,14,239,107,49,192,214,31,
+    181,199,106,157,184,84,204,176,115,121,50,45,127,4,150,254,138,236,205,93,
+    222,114,67,29,24,72,243,141,128,195,78,66,215,61,156,180
+};
+
+static float NoiseGrad(int hash, float x, float z)
 {
-    unsigned int h = (unsigned int)(x * 4919 + z * 3271 + corner * 7571);
-    h = (h ^ (h >> 11)) * 0x27d4eb2d;
-    return ((float)(h & 0xFF) / 255.0f - 0.5f) * 0.04f;  // +/- 0.02
+    int h = hash & 3;
+    float u = h < 2 ? x : z;
+    float v = h < 2 ? z : x;
+    return ((h & 1) ? -u : u) + ((h & 2) ? -v : v);
+}
+
+static float SmoothStep(float t) { return t * t * (3.0f - 2.0f * t); }
+
+static float TerrainNoise(float x, float z)
+{
+    int xi = (int)(x >= 0 ? x : x - 1) & 255;
+    int zi = (int)(z >= 0 ? z : z - 1) & 255;
+    float xf = x - (int)(x >= 0 ? x : x - 1);
+    float zf = z - (int)(z >= 0 ? z : z - 1);
+
+    float u = SmoothStep(xf);
+    float v = SmoothStep(zf);
+
+    int aa = perm[(perm[xi] + zi) & 255];
+    int ab = perm[(perm[xi] + zi + 1) & 255];
+    int ba = perm[(perm[(xi + 1) & 255] + zi) & 255];
+    int bb = perm[(perm[(xi + 1) & 255] + zi + 1) & 255];
+
+    float x1 = NoiseGrad(aa, xf, zf) * (1 - u) + NoiseGrad(ba, xf - 1, zf) * u;
+    float x2 = NoiseGrad(ab, xf, zf - 1) * (1 - u) + NoiseGrad(bb, xf - 1, zf - 1) * u;
+
+    return (x1 * (1 - v) + x2 * v) * 0.08f;  // ~±0.08 amplitude
 }
 
 void MapDraw(const Map *map)
@@ -377,8 +463,6 @@ void MapDraw(const Map *map)
     rlBegin(RL_TRIANGLES);
     for (int z = 0; z < MAP_HEIGHT; z++) {
         for (int x = 0; x < MAP_WIDTH; x++) {
-            if (map->tiles[z][x] == TILE_OBSTACLE) continue;
-
             Color base = TileBaseColor(map->tiles[z][x]);
             float elev = map->elevation[z][x] * ELEVATION_HEIGHT;
 
@@ -387,11 +471,11 @@ void MapDraw(const Map *map)
             float z0 = z * TILE_SIZE;
             float z1 = z0 + TILE_SIZE;
 
-            // Corner Y values with jitter
-            float y00 = elev + CornerJitter(x, z, 0);
-            float y10 = elev + CornerJitter(x, z, 1);
-            float y01 = elev + CornerJitter(x, z, 2);
-            float y11 = elev + CornerJitter(x, z, 3);
+            // Corner Y values with smooth noise (absolute coords → shared vertices match)
+            float y00 = elev + TerrainNoise(x, z);
+            float y10 = elev + TerrainNoise(x + 1, z);
+            float y01 = elev + TerrainNoise(x, z + 1);
+            float y11 = elev + TerrainNoise(x + 1, z + 1);
 
             Color c0 = PerturbColor(base, x, z, 0);
             Color c1 = PerturbColor(base, x, z, 1);
