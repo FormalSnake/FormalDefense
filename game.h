@@ -44,6 +44,9 @@ struct GameState {
 extern const WaveConfig WAVE_CONFIGS[MAX_WAVES];
 
 void GameStateInit(struct GameState *gs);
+// Forward declare Enemy (defined in entity.h)
+typedef struct Enemy_ Enemy_;
 void GameUpdateWave(struct GameState *gs, void *enemies, int maxEnemies, const Map *map, float dt);
+bool GameAllEnemiesDead(const void *enemies, int maxEnemies);
 
 #endif
