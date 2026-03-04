@@ -659,6 +659,14 @@ void MapBuildMesh(MapMesh *mm, const Map *map, Shader ps1Shader)
     }
 
     // Pass 2: Cliff faces
+    // Per-face directional brightness — light comes from -X, -Z (upper-left)
+    // Lit faces (facing light): left (-X normal), north (-Z normal) → 1.0
+    // Shadow faces (facing away): right (+X normal), south (+Z normal) → dark
+    float rightBright = 0.35f;   // +X normal, facing away from light
+    float leftBright  = 1.0f;    // -X normal, facing light
+    float southBright = 0.45f;   // +Z normal, facing away from light
+    float northBright = 1.0f;    // -Z normal, facing light
+
     for (int z = 0; z < MAP_HEIGHT; z++) {
         for (int x = 0; x < MAP_WIDTH; x++) {
             float elev = map->elevation[z][x] * ELEVATION_HEIGHT;
@@ -667,9 +675,6 @@ void MapBuildMesh(MapMesh *mm, const Map *map, Shader ps1Shader)
             // Average shadow of tile's corners for cliff darkening
             float tileShadow = (shadow[z][x] + shadow[z][x+1] +
                                 shadow[z+1][x] + shadow[z+1][x+1]) * 0.25f;
-            Color cliff = { (unsigned char)(base.r * 0.5f * tileShadow),
-                            (unsigned char)(base.g * 0.5f * tileShadow),
-                            (unsigned char)(base.b * 0.5f * tileShadow), 255 };
 
             float x0 = x * TILE_SIZE;
             float x1 = x0 + TILE_SIZE;
@@ -684,16 +689,23 @@ void MapBuildMesh(MapMesh *mm, const Map *map, Shader ps1Shader)
                 neighborElev = 0.0f;
 
             if (elev > neighborElev) {
-                EMIT_VERT(x1, elev, z0, cliff.r, cliff.g, cliff.b, 255);
-                EMIT_VERT(x1, neighborElev, z1, cliff.r, cliff.g, cliff.b, 255);
-                EMIT_VERT(x1, neighborElev, z0, cliff.r, cliff.g, cliff.b, 255);
-                EMIT_VERT(x1, elev, z0, cliff.r, cliff.g, cliff.b, 255);
-                EMIT_VERT(x1, elev, z1, cliff.r, cliff.g, cliff.b, 255);
-                EMIT_VERT(x1, neighborElev, z1, cliff.r, cliff.g, cliff.b, 255);
+                Color rc = { (unsigned char)(base.r * rightBright * tileShadow),
+                             (unsigned char)(base.g * rightBright * tileShadow),
+                             (unsigned char)(base.b * rightBright * tileShadow), 255 };
+                EMIT_VERT(x1, elev, z0, rc.r, rc.g, rc.b, 255);
+                EMIT_VERT(x1, neighborElev, z1, rc.r, rc.g, rc.b, 255);
+                EMIT_VERT(x1, neighborElev, z0, rc.r, rc.g, rc.b, 255);
+                EMIT_VERT(x1, elev, z0, rc.r, rc.g, rc.b, 255);
+                EMIT_VERT(x1, elev, z1, rc.r, rc.g, rc.b, 255);
+                EMIT_VERT(x1, neighborElev, z1, rc.r, rc.g, rc.b, 255);
             } else if (elev < neighborElev) {
+                // Reverse cliff: face normal is -X (left-facing), use neighbor's shadow
                 Color nBase = (x + 1 < MAP_WIDTH) ? TileBaseColor(map->tiles[z][x + 1]) : base;
-                Color nCliff = { (unsigned char)(nBase.r * 0.5f), (unsigned char)(nBase.g * 0.5f),
-                                 (unsigned char)(nBase.b * 0.5f), 255 };
+                float nShadow = (x + 1 < MAP_WIDTH) ?
+                    (shadow[z][x+1] + shadow[z][x+2] + shadow[z+1][x+1] + shadow[z+1][x+2]) * 0.25f : 1.0f;
+                Color nCliff = { (unsigned char)(nBase.r * leftBright * nShadow),
+                                 (unsigned char)(nBase.g * leftBright * nShadow),
+                                 (unsigned char)(nBase.b * leftBright * nShadow), 255 };
                 EMIT_VERT(x1, neighborElev, z0, nCliff.r, nCliff.g, nCliff.b, 255);
                 EMIT_VERT(x1, elev, z0, nCliff.r, nCliff.g, nCliff.b, 255);
                 EMIT_VERT(x1, elev, z1, nCliff.r, nCliff.g, nCliff.b, 255);
@@ -709,16 +721,23 @@ void MapBuildMesh(MapMesh *mm, const Map *map, Shader ps1Shader)
                 neighborElev = 0.0f;
 
             if (elev > neighborElev) {
-                EMIT_VERT(x0, elev, z1, cliff.r, cliff.g, cliff.b, 255);
-                EMIT_VERT(x0, neighborElev, z1, cliff.r, cliff.g, cliff.b, 255);
-                EMIT_VERT(x1, neighborElev, z1, cliff.r, cliff.g, cliff.b, 255);
-                EMIT_VERT(x0, elev, z1, cliff.r, cliff.g, cliff.b, 255);
-                EMIT_VERT(x1, neighborElev, z1, cliff.r, cliff.g, cliff.b, 255);
-                EMIT_VERT(x1, elev, z1, cliff.r, cliff.g, cliff.b, 255);
+                Color sc = { (unsigned char)(base.r * southBright * tileShadow),
+                             (unsigned char)(base.g * southBright * tileShadow),
+                             (unsigned char)(base.b * southBright * tileShadow), 255 };
+                EMIT_VERT(x0, elev, z1, sc.r, sc.g, sc.b, 255);
+                EMIT_VERT(x0, neighborElev, z1, sc.r, sc.g, sc.b, 255);
+                EMIT_VERT(x1, neighborElev, z1, sc.r, sc.g, sc.b, 255);
+                EMIT_VERT(x0, elev, z1, sc.r, sc.g, sc.b, 255);
+                EMIT_VERT(x1, neighborElev, z1, sc.r, sc.g, sc.b, 255);
+                EMIT_VERT(x1, elev, z1, sc.r, sc.g, sc.b, 255);
             } else if (elev < neighborElev) {
+                // Reverse cliff: face normal is -Z (north-facing), use neighbor's shadow
                 Color nBase = (z + 1 < MAP_HEIGHT) ? TileBaseColor(map->tiles[z + 1][x]) : base;
-                Color nCliff = { (unsigned char)(nBase.r * 0.5f), (unsigned char)(nBase.g * 0.5f),
-                                 (unsigned char)(nBase.b * 0.5f), 255 };
+                float nShadow = (z + 1 < MAP_HEIGHT) ?
+                    (shadow[z+1][x] + shadow[z+1][x+1] + shadow[z+2][x] + shadow[z+2][x+1]) * 0.25f : 1.0f;
+                Color nCliff = { (unsigned char)(nBase.r * northBright * nShadow),
+                                 (unsigned char)(nBase.g * northBright * nShadow),
+                                 (unsigned char)(nBase.b * northBright * nShadow), 255 };
                 EMIT_VERT(x0, neighborElev, z1, nCliff.r, nCliff.g, nCliff.b, 255);
                 EMIT_VERT(x1, elev, z1, nCliff.r, nCliff.g, nCliff.b, 255);
                 EMIT_VERT(x0, elev, z1, nCliff.r, nCliff.g, nCliff.b, 255);
@@ -727,24 +746,30 @@ void MapBuildMesh(MapMesh *mm, const Map *map, Shader ps1Shader)
                 EMIT_VERT(x1, elev, z1, nCliff.r, nCliff.g, nCliff.b, 255);
             }
 
-            // Left edge (x=0)
+            // Left edge (x=0): face normal is -X
             if (x == 0 && elev > 0.0f) {
-                EMIT_VERT(x0, elev, z1, cliff.r, cliff.g, cliff.b, 255);
-                EMIT_VERT(x0, 0.0f, z0, cliff.r, cliff.g, cliff.b, 255);
-                EMIT_VERT(x0, 0.0f, z1, cliff.r, cliff.g, cliff.b, 255);
-                EMIT_VERT(x0, elev, z1, cliff.r, cliff.g, cliff.b, 255);
-                EMIT_VERT(x0, elev, z0, cliff.r, cliff.g, cliff.b, 255);
-                EMIT_VERT(x0, 0.0f, z0, cliff.r, cliff.g, cliff.b, 255);
+                Color lc = { (unsigned char)(base.r * leftBright * tileShadow),
+                             (unsigned char)(base.g * leftBright * tileShadow),
+                             (unsigned char)(base.b * leftBright * tileShadow), 255 };
+                EMIT_VERT(x0, elev, z1, lc.r, lc.g, lc.b, 255);
+                EMIT_VERT(x0, 0.0f, z0, lc.r, lc.g, lc.b, 255);
+                EMIT_VERT(x0, 0.0f, z1, lc.r, lc.g, lc.b, 255);
+                EMIT_VERT(x0, elev, z1, lc.r, lc.g, lc.b, 255);
+                EMIT_VERT(x0, elev, z0, lc.r, lc.g, lc.b, 255);
+                EMIT_VERT(x0, 0.0f, z0, lc.r, lc.g, lc.b, 255);
             }
 
-            // Top edge (z=0)
+            // Top edge (z=0): face normal is -Z
             if (z == 0 && elev > 0.0f) {
-                EMIT_VERT(x0, elev, z0, cliff.r, cliff.g, cliff.b, 255);
-                EMIT_VERT(x1, 0.0f, z0, cliff.r, cliff.g, cliff.b, 255);
-                EMIT_VERT(x0, 0.0f, z0, cliff.r, cliff.g, cliff.b, 255);
-                EMIT_VERT(x0, elev, z0, cliff.r, cliff.g, cliff.b, 255);
-                EMIT_VERT(x1, elev, z0, cliff.r, cliff.g, cliff.b, 255);
-                EMIT_VERT(x1, 0.0f, z0, cliff.r, cliff.g, cliff.b, 255);
+                Color nc = { (unsigned char)(base.r * northBright * tileShadow),
+                             (unsigned char)(base.g * northBright * tileShadow),
+                             (unsigned char)(base.b * northBright * tileShadow), 255 };
+                EMIT_VERT(x0, elev, z0, nc.r, nc.g, nc.b, 255);
+                EMIT_VERT(x1, 0.0f, z0, nc.r, nc.g, nc.b, 255);
+                EMIT_VERT(x0, 0.0f, z0, nc.r, nc.g, nc.b, 255);
+                EMIT_VERT(x0, elev, z0, nc.r, nc.g, nc.b, 255);
+                EMIT_VERT(x1, elev, z0, nc.r, nc.g, nc.b, 255);
+                EMIT_VERT(x1, 0.0f, z0, nc.r, nc.g, nc.b, 255);
             }
         }
     }
