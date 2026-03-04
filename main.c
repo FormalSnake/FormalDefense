@@ -635,16 +635,11 @@ int main(void)
                     NetSendMapData(&netCtx, &map);
                     GameStateInitMultiplayer(&gs, netCtx.playerCount);
                 } else {
-                    // Client: wait for map data or use local map
-                    if (netCtx.mapDataReceived) {
-                        // map was already loaded in MSG_MAP_DATA handler
-                    } else {
-                        // Try loading by name from local maps/
-                        char localPath[256];
-                        snprintf(localPath, sizeof(localPath), "maps/%s.fdmap", netCtx.selectedMap);
-                        if (!MapLoad(&map, localPath))
-                            MapInit(&map);
-                    }
+                    // Client: load map by name (may have been saved by MSG_MAP_DATA handler)
+                    char localPath[256];
+                    snprintf(localPath, sizeof(localPath), "maps/%s.fdmap", netCtx.selectedMap);
+                    if (!MapLoad(&map, localPath))
+                        MapInit(&map);
                     GameStateInitMultiplayer(&gs, netCtx.playerCount);
                 }
                 memset(enemies, 0, sizeof(enemies));

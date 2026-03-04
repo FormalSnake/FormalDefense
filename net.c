@@ -365,17 +365,19 @@ static void ClientHandlePacket(NetContext *ctx, const uint8_t *data, size_t size
 
         const char *mapData = (const char *)(data + sizeof(MapDataMsg));
 
-        // Try loading from local maps/ first
-        char localPath[256];
-        snprintf(localPath, sizeof(localPath), "maps/%s.fdmap", mapMsg->mapName);
-        if (!MapLoad(map, localPath)) {
-            // Load from received data
-            MapLoadFromBuffer(map, mapData, mapMsg->dataSize);
-            // Save for next time
-            FILE *f = fopen(localPath, "w");
-            if (f) {
-                fwrite(mapData, 1, mapMsg->dataSize, f);
-                fclose(f);
+        if (map) {
+            // Try loading from local maps/ first
+            char localPath[256];
+            snprintf(localPath, sizeof(localPath), "maps/%s.fdmap", mapMsg->mapName);
+            if (!MapLoad(map, localPath)) {
+                // Load from received data
+                MapLoadFromBuffer(map, mapData, mapMsg->dataSize);
+                // Save for next time
+                FILE *f = fopen(localPath, "w");
+                if (f) {
+                    fwrite(mapData, 1, mapMsg->dataSize, f);
+                    fclose(f);
+                }
             }
         }
         ctx->mapDataReceived = true;
