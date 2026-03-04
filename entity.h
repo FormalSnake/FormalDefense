@@ -1,7 +1,7 @@
 #ifndef ENTITY_H
 #define ENTITY_H
 
-#include "fd_math.h"
+#include "raylib.h"
 #include "map.h"
 #include <stdbool.h>
 #include <stdint.h>
@@ -71,8 +71,8 @@ extern const EnemyConfig ENEMY_CONFIGS[ENEMY_TYPE_COUNT];
 
 void EnemySpawn(Enemy enemies[], int maxEnemies, EnemyType type, const Map *map, GameState *gs);
 void EnemiesUpdate(Enemy enemies[], int maxEnemies, const Map *map, GameState *gs, float dt);
-void EnemiesDraw(const Enemy enemies[], int maxEnemies);
-void EnemiesDrawHUD(const Enemy enemies[], int maxEnemies, FdMat4 vp, int screenW, int screenH);
+void EnemiesDraw(const Enemy enemies[], int maxEnemies, Model sphereModel);
+void EnemiesDrawHUD(const Enemy enemies[], int maxEnemies, Camera3D camera);
 Enemy *EnemyFindByID(Enemy enemies[], int maxEnemies, EntityID id);
 
 // --- Projectile ---
@@ -97,7 +97,7 @@ void ProjectileSpawn(Projectile projectiles[], int maxProjectiles,
                      uint8_t ownerPlayer, GameState *gs);
 void ProjectilesUpdate(Projectile projectiles[], int maxProjectiles,
                        Enemy enemies[], int maxEnemies, GameState *gs, float dt);
-void ProjectilesDraw(const Projectile projectiles[], int maxProjectiles);
+void ProjectilesDraw(const Projectile projectiles[], int maxProjectiles, Model sphereModel);
 
 // --- Tower ---
 

@@ -1,8 +1,6 @@
 #include "chat.h"
 #include "entity.h"
-#include "fd_gfx.h"
-#include "fd_input.h"
-#include "fd_app.h"
+#include "raylib.h"
 #include <string.h>
 #include <stdio.h>
 
@@ -117,9 +115,9 @@ void ChatDraw(const ChatState *cs, int screenW, int screenH)
     // Draw input box
     if (cs->inputActive) {
         int inputY = chatBaseY + 4;
-        FdDrawRect(chatX, inputY, 400, 22, (Color){ 0, 0, 0, 180 });
-        FdDrawRectLines(chatX, inputY, 400, 22, (Color){ 100, 200, 100, 200 });
-        FdDrawText(FdTextFormat("> %s_", cs->inputBuf), chatX + 4, inputY + 3, 14, WHITE);
+        DrawRectangle(chatX, inputY, 400, 22, (Color){ 0, 0, 0, 180 });
+        DrawRectangleLines(chatX, inputY, 400, 22, (Color){ 100, 200, 100, 200 });
+        DrawText(TextFormat("> %s_", cs->inputBuf), chatX + 4, inputY + 3, 14, WHITE);
     } else if (shown == 0) {
         // Show hint
     }

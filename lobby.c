@@ -1,7 +1,5 @@
 #include "lobby.h"
-#include "fd_gfx.h"
-#include "fd_input.h"
-#include "fd_app.h"
+#include "raylib.h"
 #include <string.h>
 #include <stdio.h>
 
@@ -68,26 +66,27 @@ void LobbyUpdate(LobbyState *ls, NetContext *ctx)
 
 static bool DrawButton(int x, int y, int w, int h, const char *text, int fontSize, Vector2 mouse)
 {
-    FdRect rect = { (float)x, (float)y, (float)w, (float)h };
-    bool hover = FdPointInRect(mouse, rect);
+    Rectangle rect = { (float)x, (float)y, (float)w, (float)h };
+    bool hover = CheckCollisionPointRec(mouse, rect);
     Color bg = hover ? (Color){ 60, 80, 100, 255 } : (Color){ 40, 50, 65, 255 };
-    FdDrawRect(x, y, w, h, bg);
-    FdDrawRectLinesEx(x, y, w, h, 2, (Color){ 100, 140, 180, 200 });
-    int tw = FdMeasureText(text, fontSize);
-    FdDrawText(text, x + (w - tw) / 2, y + (h - fontSize) / 2, fontSize, WHITE);
+    DrawRectangleRec(rect, bg);
+    DrawRectangleLinesEx(rect, 2, (Color){ 100, 140, 180, 200 });
+    int tw = MeasureText(text, fontSize);
+    DrawText(text, x + (w - tw) / 2, y + (h - fontSize) / 2, fontSize, WHITE);
     return hover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
 }
 
 static void DrawTextBox(int x, int y, int w, int h, const char *text, bool active, Vector2 mouse)
 {
+    Rectangle rect = { (float)x, (float)y, (float)w, (float)h };
     (void)mouse;
     Color border = active ? (Color){ 100, 200, 100, 255 } : (Color){ 80, 80, 80, 255 };
-    FdDrawRect(x, y, w, h, (Color){ 25, 25, 30, 255 });
-    FdDrawRectLinesEx(x, y, w, h, 2, border);
-    FdDrawText(text, x + 6, y + (h - 16) / 2, 16, WHITE);
+    DrawRectangleRec(rect, (Color){ 25, 25, 30, 255 });
+    DrawRectangleLinesEx(rect, 2, border);
+    DrawText(text, x + 6, y + (h - 16) / 2, 16, WHITE);
     if (active) {
-        int tw = FdMeasureText(text, 16);
-        FdDrawText("_", x + 6 + tw, y + (h - 16) / 2, 16, (Color){ 100, 200, 100, 255 });
+        int tw = MeasureText(text, 16);
+        DrawText("_", x + 6 + tw, y + (h - 16) / 2, 16, (Color){ 100, 200, 100, 255 });
     }
 }
 
@@ -108,9 +107,9 @@ void LobbyDraw(LobbyState *ls, NetContext *ctx, int screenW, int screenH)
         // Username
         DrawText("Username:", cx - 140, 140, 18, LIGHTGRAY);
         DrawTextBox(cx - 140, 165, 280, 32, ls->username, ls->editingUsername, mouse);
-        FdRect unRect = { (float)(cx - 140), 165.0f, 280.0f, 32.0f };
+        Rectangle unRect = { (float)(cx - 140), 165.0f, 280.0f, 32.0f };
         if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-            ls->editingUsername = FdPointInRect(mouse, unRect);
+            ls->editingUsername = CheckCollisionPointRec(mouse, unRect);
         }
 
         // Host / Join buttons
@@ -144,7 +143,7 @@ void LobbyDraw(LobbyState *ls, NetContext *ctx, int screenW, int screenH)
         DrawText("Waiting for players...", cx - 100, 100, 18, LIGHTGRAY);
 
         // Show selected map
-        FdDrawText(FdTextFormat("Map: %s", ctx->selectedMap[0] ? ctx->selectedMap : "None"),
+        DrawText(TextFormat("Map: %s", ctx->selectedMap[0] ? ctx->selectedMap : "None"),
                  cx - 150, 125, 16, (Color){ 180, 200, 255, 255 });
 
         // Player list
@@ -152,12 +151,12 @@ void LobbyDraw(LobbyState *ls, NetContext *ctx, int screenW, int screenH)
             int py = 150 + i * 35;
             if (ctx->playerConnected[i]) {
                 Color col = PLAYER_COLORS[i];
-                FdDrawRect(cx - 150, py, 300, 30, (Color){ 30, 40, 50, 200 });
-                FdDrawText(FdTextFormat("P%d: %s", i + 1, ctx->playerNames[i]),
+                DrawRectangle(cx - 150, py, 300, 30, (Color){ 30, 40, 50, 200 });
+                DrawText(TextFormat("P%d: %s", i + 1, ctx->playerNames[i]),
                         cx - 140, py + 6, 18, col);
             } else {
-                FdDrawRect(cx - 150, py, 300, 30, (Color){ 20, 20, 25, 150 });
-                FdDrawText(FdTextFormat("P%d: ---", i + 1), cx - 140, py + 6, 18, DARKGRAY);
+                DrawRectangle(cx - 150, py, 300, 30, (Color){ 20, 20, 25, 150 });
+                DrawText(TextFormat("P%d: ---", i + 1), cx - 140, py + 6, 18, DARKGRAY);
             }
         }
 
@@ -190,8 +189,8 @@ void LobbyDraw(LobbyState *ls, NetContext *ctx, int screenW, int screenH)
             int gy = 130 + i * 40;
             bool selected = (ls->selectedGame == i);
             Color bg = selected ? (Color){ 50, 70, 90, 255 } : (Color){ 30, 35, 45, 200 };
-            FdDrawRect(cx - 180, gy, 360, 35, bg);
-            FdDrawRectLines(cx - 180, gy, 360, 35, (Color){ 70, 70, 80, 200 });
+            DrawRectangle(cx - 180, gy, 360, 35, bg);
+            DrawRectangleLines(cx - 180, gy, 360, 35, (Color){ 70, 70, 80, 200 });
             DrawText(TextFormat("%s (%d/%d) - %s",
                     g_discoveredGames[i].hostName,
                     g_discoveredGames[i].playerCount,
@@ -199,8 +198,8 @@ void LobbyDraw(LobbyState *ls, NetContext *ctx, int screenW, int screenH)
                     g_discoveredGames[i].address),
                     cx - 170, gy + 8, 16, WHITE);
 
-            FdRect gRect = { (float)(cx - 180), (float)gy, 360.0f, 35.0f };
-            if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && FdPointInRect(mouse, gRect))
+            Rectangle gRect = { (float)(cx - 180), (float)gy, 360.0f, 35.0f };
+            if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && CheckCollisionPointRec(mouse, gRect))
                 ls->selectedGame = i;
         }
 
@@ -209,9 +208,9 @@ void LobbyDraw(LobbyState *ls, NetContext *ctx, int screenW, int screenH)
         // Direct IP entry
         DrawText("Or enter IP:", cx - 150, baseY, 16, LIGHTGRAY);
         DrawTextBox(cx - 150, baseY + 22, 220, 28, ls->directIP, ls->editingIP, mouse);
-        FdRect ipRect = { (float)(cx - 150), (float)(baseY + 22), 220.0f, 28.0f };
+        Rectangle ipRect = { (float)(cx - 150), (float)(baseY + 22), 220.0f, 28.0f };
         if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-            ls->editingIP = FdPointInRect(mouse, ipRect);
+            ls->editingIP = CheckCollisionPointRec(mouse, ipRect);
         }
 
         // Connect button
@@ -247,7 +246,7 @@ void LobbyDraw(LobbyState *ls, NetContext *ctx, int screenW, int screenH)
         DrawText("Waiting for host to start...", cx - 120, 100, 18, LIGHTGRAY);
 
         // Show selected map
-        FdDrawText(FdTextFormat("Map: %s", ctx->selectedMap[0] ? ctx->selectedMap : "..."),
+        DrawText(TextFormat("Map: %s", ctx->selectedMap[0] ? ctx->selectedMap : "..."),
                  cx - 150, 125, 16, (Color){ 180, 200, 255, 255 });
 
         // Player list
@@ -255,13 +254,13 @@ void LobbyDraw(LobbyState *ls, NetContext *ctx, int screenW, int screenH)
             int py = 150 + i * 35;
             if (ctx->playerConnected[i]) {
                 Color col = PLAYER_COLORS[i];
-                FdDrawRect(cx - 150, py, 300, 30, (Color){ 30, 40, 50, 200 });
-                FdDrawText(FdTextFormat("P%d: %s%s", i + 1, ctx->playerNames[i],
+                DrawRectangle(cx - 150, py, 300, 30, (Color){ 30, 40, 50, 200 });
+                DrawText(TextFormat("P%d: %s%s", i + 1, ctx->playerNames[i],
                         i == ctx->localPlayerIndex ? " (You)" : ""),
                         cx - 140, py + 6, 18, col);
             } else {
-                FdDrawRect(cx - 150, py, 300, 30, (Color){ 20, 20, 25, 150 });
-                FdDrawText(FdTextFormat("P%d: ---", i + 1), cx - 140, py + 6, 18, DARKGRAY);
+                DrawRectangle(cx - 150, py, 300, 30, (Color){ 20, 20, 25, 150 });
+                DrawText(TextFormat("P%d: ---", i + 1), cx - 140, py + 6, 18, DARKGRAY);
             }
         }
 
