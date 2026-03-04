@@ -1,0 +1,25 @@
+name Reggina
+size 20 15
+
+waypoints
+0 12
+7 12
+7 2
+19 2
+end
+
+tiles
+5 0 obstacle
+2 4 obstacle
+14 5 obstacle
+13 8 obstacle
+12 12 obstacle
+18 13 obstacle
+end
+
+elevation
+9 5 3
+4 8 1
+2 10 2
+11 10 2
+end
