@@ -146,9 +146,13 @@ void LobbyDraw(LobbyState *ls, NetContext *ctx, int screenW, int screenH)
 
         DrawText("Waiting for players...", cx - 100, 100, 18, LIGHTGRAY);
 
+        // Show selected map
+        DrawText(TextFormat("Map: %s", ctx->selectedMap[0] ? ctx->selectedMap : "None"),
+                 cx - 150, 125, 16, (Color){ 180, 200, 255, 255 });
+
         // Player list
         for (int i = 0; i < NET_MAX_PLAYERS; i++) {
-            int py = 140 + i * 35;
+            int py = 150 + i * 35;
             if (ctx->playerConnected[i]) {
                 Color col = PLAYER_COLORS[i];
                 DrawRectangle(cx - 150, py, 300, 30, (Color){ 30, 40, 50, 200 });
@@ -160,12 +164,12 @@ void LobbyDraw(LobbyState *ls, NetContext *ctx, int screenW, int screenH)
             }
         }
 
-        // Start button (need at least 2 players... or allow 1 for testing)
-        if (DrawButton(cx - 100, 310, 200, 45, "Start Game", 24, mouse)) {
+        // Start button
+        if (DrawButton(cx - 100, 320, 200, 45, "Start Game", 24, mouse)) {
             NetSendGameStart(ctx);
         }
 
-        if (DrawButton(cx - 100, 370, 200, 40, "Cancel", 20, mouse)) {
+        if (DrawButton(cx - 100, 380, 200, 40, "Cancel", 20, mouse)) {
             NetDiscoveryStop(ctx);
             NetContextDestroy(ctx);
             NetShutdown();
@@ -245,9 +249,13 @@ void LobbyDraw(LobbyState *ls, NetContext *ctx, int screenW, int screenH)
 
         DrawText("Waiting for host to start...", cx - 120, 100, 18, LIGHTGRAY);
 
+        // Show selected map
+        DrawText(TextFormat("Map: %s", ctx->selectedMap[0] ? ctx->selectedMap : "..."),
+                 cx - 150, 125, 16, (Color){ 180, 200, 255, 255 });
+
         // Player list
         for (int i = 0; i < NET_MAX_PLAYERS; i++) {
-            int py = 140 + i * 35;
+            int py = 150 + i * 35;
             if (ctx->playerConnected[i]) {
                 Color col = PLAYER_COLORS[i];
                 DrawRectangle(cx - 150, py, 300, 30, (Color){ 30, 40, 50, 200 });
@@ -283,4 +291,9 @@ bool LobbyGameStarted(LobbyState *ls, NetContext *ctx)
     if (ctx->mode == NET_MODE_CLIENT && ctx->inGame) return true;
     (void)ls;
     return false;
+}
+
+bool LobbyBackPressed(LobbyState *ls)
+{
+    return ls->phase == LOBBY_CHOOSE;
 }

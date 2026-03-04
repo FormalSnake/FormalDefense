@@ -195,14 +195,7 @@ static void HostHandleJoinRequest(NetContext *ctx, ENetPeer *peer, const JoinReq
     NetSendReliable(peer, &acc, sizeof(acc));
 
     // Broadcast lobby state to all
-    LobbyStateMsg lm;
-    PacketHeaderInit(&lm.header, MSG_LOBBY_STATE, sizeof(lm));
-    lm.playerCount = (uint8_t)ctx->playerCount;
-    for (int i = 0; i < NET_MAX_PLAYERS; i++) {
-        strncpy(lm.players[i].username, ctx->playerNames[i], NET_MAX_USERNAME);
-        lm.players[i].connected = ctx->playerConnected[i] ? 1 : 0;
-    }
-    NetBroadcastReliable(ctx, &lm, sizeof(lm));
+    NetBroadcastLobbyState(ctx);
 }
 
 static void HostHandleAction(NetContext *ctx, ENetPeer *peer, const uint8_t *data, size_t size,
@@ -351,6 +344,8 @@ static void ClientHandlePacket(NetContext *ctx, const uint8_t *data, size_t size
             strncpy(ctx->playerNames[i], lm->players[i].username, NET_MAX_USERNAME);
             ctx->playerConnected[i] = lm->players[i].connected;
         }
+        strncpy(ctx->selectedMap, lm->selectedMap, MAX_MAP_NAME - 1);
+        ctx->selectedMap[MAX_MAP_NAME - 1] = '\0';
         break;
     }
     case MSG_GAME_START: {
@@ -358,6 +353,32 @@ static void ClientHandlePacket(NetContext *ctx, const uint8_t *data, size_t size
         const GameStartMsg *start = (const GameStartMsg *)data;
         ctx->inGame = true;
         ctx->playerCount = start->playerCount;
+        strncpy(ctx->selectedMap, start->mapName, MAX_MAP_NAME - 1);
+        ctx->selectedMap[MAX_MAP_NAME - 1] = '\0';
+        break;
+    }
+    case MSG_MAP_DATA: {
+        if (size < sizeof(MapDataMsg)) return;
+        const MapDataMsg *mapMsg = (const MapDataMsg *)data;
+        size_t expectedSize = sizeof(MapDataMsg) + mapMsg->dataSize;
+        if (size < expectedSize) return;
+
+        const char *mapData = (const char *)(data + sizeof(MapDataMsg));
+
+        // Try loading from local maps/ first
+        char localPath[256];
+        snprintf(localPath, sizeof(localPath), "maps/%s.fdmap", mapMsg->mapName);
+        if (!MapLoad(map, localPath)) {
+            // Load from received data
+            MapLoadFromBuffer(map, mapData, mapMsg->dataSize);
+            // Save for next time
+            FILE *f = fopen(localPath, "w");
+            if (f) {
+                fwrite(mapData, 1, mapMsg->dataSize, f);
+                fclose(f);
+            }
+        }
+        ctx->mapDataReceived = true;
         break;
     }
     case MSG_PLAYER_DISCONNECT: {
@@ -614,8 +635,49 @@ void NetSendGameStart(NetContext *ctx)
     GameStartMsg msg;
     PacketHeaderInit(&msg.header, MSG_GAME_START, sizeof(msg));
     msg.playerCount = (uint8_t)ctx->playerCount;
+    memset(msg.mapName, 0, sizeof(msg.mapName));
+    strncpy(msg.mapName, ctx->selectedMap, MAX_MAP_NAME - 1);
     NetBroadcastReliable(ctx, &msg, sizeof(msg));
     ctx->inGame = true;
+}
+
+void NetSendMapData(NetContext *ctx, const Map *map)
+{
+    if (ctx->mode != NET_MODE_HOST) return;
+
+    char mapBuf[4096];
+    int dataLen = MapSerialize(map, mapBuf, sizeof(mapBuf));
+    if (dataLen <= 0) return;
+
+    size_t totalSize = sizeof(MapDataMsg) + dataLen;
+    uint8_t *packet = malloc(totalSize);
+    if (!packet) return;
+
+    MapDataMsg *msg = (MapDataMsg *)packet;
+    PacketHeaderInit(&msg->header, MSG_MAP_DATA, (uint16_t)totalSize);
+    memset(msg->mapName, 0, sizeof(msg->mapName));
+    strncpy(msg->mapName, map->name, MAX_MAP_NAME - 1);
+    msg->dataSize = (uint16_t)dataLen;
+    memcpy(packet + sizeof(MapDataMsg), mapBuf, dataLen);
+
+    NetBroadcastReliable(ctx, packet, totalSize);
+    free(packet);
+}
+
+void NetBroadcastLobbyState(NetContext *ctx)
+{
+    if (ctx->mode != NET_MODE_HOST) return;
+
+    LobbyStateMsg lm;
+    PacketHeaderInit(&lm.header, MSG_LOBBY_STATE, sizeof(lm));
+    lm.playerCount = (uint8_t)ctx->playerCount;
+    for (int i = 0; i < NET_MAX_PLAYERS; i++) {
+        strncpy(lm.players[i].username, ctx->playerNames[i], NET_MAX_USERNAME);
+        lm.players[i].connected = ctx->playerConnected[i] ? 1 : 0;
+    }
+    memset(lm.selectedMap, 0, sizeof(lm.selectedMap));
+    strncpy(lm.selectedMap, ctx->selectedMap, MAX_MAP_NAME - 1);
+    NetBroadcastReliable(ctx, &lm, sizeof(lm));
 }
 
 // --- Snapshot ---

@@ -9,6 +9,7 @@
 #include "chat.h"
 #include <math.h>
 #include <string.h>
+#include <stdio.h>
 
 // --- PS1 Graphics Constants ---
 
@@ -19,7 +20,10 @@
 
 // --- Scene ---
 
-typedef enum { SCENE_MENU, SCENE_LOBBY, SCENE_GAME } Scene;
+typedef enum { SCENE_MENU, SCENE_MAP_SELECT, SCENE_LOBBY, SCENE_GAME } Scene;
+
+// Track whether map select was opened for multiplayer host flow
+static bool mapSelectForMultiplayer = false;
 
 // --- Camera Controller ---
 
@@ -286,6 +290,11 @@ int main(void)
     g_chatStatePtr = &chatState;
     g_netChatCallback = OnNetChatReceived;
 
+    // --- Map registry ---
+    MapRegistry mapRegistry;
+    MapRegistryScan(&mapRegistry, "maps");
+    int selectedMapIdx = 0;
+
     // --- Menu state ---
     Map menuMap;
     MapInit(&menuMap);
@@ -442,21 +451,115 @@ int main(void)
             // Multiplayer button click
             if (mpHover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
                 LobbyStateInit(&lobbyState);
-                currentScene = SCENE_LOBBY;
+                mapSelectForMultiplayer = true;
+                MapRegistryScan(&mapRegistry, "maps");
+                selectedMapIdx = 0;
+                currentScene = SCENE_MAP_SELECT;
             }
 
             // Play button click
             if (playHover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-                MapInit(&map);
-                GameStateInit(&gs);
-                memset(enemies, 0, sizeof(enemies));
-                memset(towers, 0, sizeof(towers));
-                memset(projectiles, 0, sizeof(projectiles));
-                CameraControllerInit(&camCtrl);
-                CameraControllerUpdate(&camCtrl, &camera, 0.0f);
-                selectedTowerType = -1;
-                selectedTowerIdx = -1;
-                currentScene = SCENE_GAME;
+                mapSelectForMultiplayer = false;
+                MapRegistryScan(&mapRegistry, "maps");
+                selectedMapIdx = 0;
+                currentScene = SCENE_MAP_SELECT;
+            }
+        } break;
+
+        case SCENE_MAP_SELECT: {
+            BeginDrawing();
+            ClearBackground((Color){ 20, 22, 28, 255 });
+
+            const char *msTitle = mapSelectForMultiplayer ? "Select Map (Host)" : "Select Map";
+            int msTitleW = MeasureText(msTitle, 36);
+            DrawText(msTitle, (screenW - msTitleW) / 2, 50, 36, WHITE);
+
+            if (mapRegistry.count == 0) {
+                DrawText("No maps found in maps/ directory", screenW / 2 - 150, 120, 18, LIGHTGRAY);
+            }
+
+            for (int i = 0; i < mapRegistry.count; i++) {
+                int my = 110 + i * 50;
+                bool selected = (selectedMapIdx == i);
+                bool hover = CheckCollisionPointRec(mouse,
+                    (Rectangle){ (float)(screenW / 2 - 150), (float)my, 300.0f, 42.0f });
+
+                Color bg = selected ? (Color){ 50, 80, 110, 255 } :
+                           hover    ? (Color){ 40, 55, 75, 255 }  :
+                                      (Color){ 30, 35, 45, 200 };
+                DrawRectangle(screenW / 2 - 150, my, 300, 42, bg);
+                DrawRectangleLines(screenW / 2 - 150, my, 300, 42, (Color){ 80, 100, 120, 200 });
+                DrawText(mapRegistry.names[i], screenW / 2 - 138, my + 12, 20,
+                         selected ? GOLD : WHITE);
+
+                if (hover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+                    selectedMapIdx = i;
+            }
+
+            int btnBaseY = 110 + (mapRegistry.count > 0 ? mapRegistry.count : 1) * 50 + 20;
+
+            // Start / Select button
+            int sbW = 200, sbH = 45;
+            int sbX = (screenW - sbW) / 2;
+            Rectangle startBtn = { (float)sbX, (float)btnBaseY, (float)sbW, (float)sbH };
+            bool startHover = CheckCollisionPointRec(mouse, startBtn);
+            Color startBg = startHover ? (Color){ 60, 120, 60, 255 } : (Color){ 40, 80, 40, 255 };
+            bool canStart = mapRegistry.count > 0;
+            if (!canStart) startBg = (Color){ 40, 40, 40, 255 };
+            DrawRectangleRec(startBtn, startBg);
+            DrawRectangleLinesEx(startBtn, 2, (Color){ 100, 200, 100, 200 });
+            const char *startText = mapSelectForMultiplayer ? "Host with Map" : "Play";
+            int startTextW = MeasureText(startText, 24);
+            DrawText(startText, sbX + (sbW - startTextW) / 2, btnBaseY + 11, 24,
+                     canStart ? WHITE : DARKGRAY);
+
+            // Back button
+            int bbY = btnBaseY + sbH + 12;
+            Rectangle backBtn = { (float)sbX, (float)bbY, (float)sbW, 40.0f };
+            bool backHover = CheckCollisionPointRec(mouse, backBtn);
+            Color backBg = backHover ? (Color){ 80, 50, 50, 255 } : (Color){ 55, 35, 35, 255 };
+            DrawRectangleRec(backBtn, backBg);
+            DrawRectangleLinesEx(backBtn, 2, (Color){ 180, 100, 100, 200 });
+            const char *backText = "Back";
+            int backTextW = MeasureText(backText, 22);
+            DrawText(backText, sbX + (sbW - backTextW) / 2, bbY + 9, 22, WHITE);
+
+            EndDrawing();
+
+            // Handle start click
+            if (canStart && startHover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+                if (mapSelectForMultiplayer) {
+                    // Host flow: load map, set up net context, go to lobby
+                    LobbyStateInit(&lobbyState);
+                    if (lobbyState.usernameLen > 0) {
+                        NetInit();
+                        if (NetHostCreate(&netCtx, lobbyState.username)) {
+                            strncpy(netCtx.selectedMap, mapRegistry.names[selectedMapIdx], MAX_MAP_NAME - 1);
+                            strncpy(netCtx.selectedMapPath, mapRegistry.paths[selectedMapIdx], 255);
+                            NetDiscoveryStart(&netCtx);
+                            lobbyState.phase = LOBBY_HOST_WAIT;
+                            currentScene = SCENE_LOBBY;
+                        }
+                    }
+                } else {
+                    // Single-player: load map and start game
+                    if (!MapLoad(&map, mapRegistry.paths[selectedMapIdx]))
+                        MapInit(&map);
+                    GameStateInit(&gs);
+                    memset(enemies, 0, sizeof(enemies));
+                    memset(towers, 0, sizeof(towers));
+                    memset(projectiles, 0, sizeof(projectiles));
+                    CameraControllerInit(&camCtrl);
+                    CameraControllerUpdate(&camCtrl, &camera, 0.0f);
+                    selectedTowerType = -1;
+                    selectedTowerIdx = -1;
+                    currentScene = SCENE_GAME;
+                }
+            }
+
+            // Handle back
+            if ((backHover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) || IsKeyPressed(KEY_ESCAPE)) {
+                currentScene = SCENE_MENU;
             }
         } break;
 
@@ -476,10 +579,24 @@ int main(void)
 
             // Check if game should start
             if (LobbyGameStarted(&lobbyState, &netCtx)) {
-                MapInit(&map);
                 if (netCtx.mode == NET_MODE_HOST) {
+                    // Host: load the selected map
+                    if (!MapLoad(&map, netCtx.selectedMapPath))
+                        MapInit(&map);
+                    // Send map data to clients
+                    NetSendMapData(&netCtx, &map);
                     GameStateInitMultiplayer(&gs, netCtx.playerCount);
                 } else {
+                    // Client: wait for map data or use local map
+                    if (netCtx.mapDataReceived) {
+                        // map was already loaded in MSG_MAP_DATA handler
+                    } else {
+                        // Try loading by name from local maps/
+                        char localPath[256];
+                        snprintf(localPath, sizeof(localPath), "maps/%s.fdmap", netCtx.selectedMap);
+                        if (!MapLoad(&map, localPath))
+                            MapInit(&map);
+                    }
                     GameStateInitMultiplayer(&gs, netCtx.playerCount);
                 }
                 memset(enemies, 0, sizeof(enemies));
@@ -998,7 +1115,15 @@ int main(void)
 
         // --- Restart ---
         if (gs.phase == PHASE_OVER && IsKeyPressed(KEY_R)) {
-            MapInit(&map);
+            // Reload current map (use name to find path)
+            bool reloaded = false;
+            for (int i = 0; i < mapRegistry.count; i++) {
+                if (strcmp(mapRegistry.names[i], map.name) == 0) {
+                    reloaded = MapLoad(&map, mapRegistry.paths[i]);
+                    break;
+                }
+            }
+            if (!reloaded) MapInit(&map);
             GameStateInit(&gs);
             memset(enemies, 0, sizeof(enemies));
             memset(towers, 0, sizeof(towers));

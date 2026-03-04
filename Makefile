@@ -15,10 +15,17 @@ $(TARGET): $(OBJS) $(ENET_OBJS)
 %.o: %.c
 	$(CC) $(CFLAGS) -c -o $@ $<
 
+EDITOR_TARGET = editor
+EDITOR_SRCS = editor.c map.c
+EDITOR_OBJS = $(EDITOR_SRCS:.c=.o)
+
 run: $(TARGET)
 	./$(TARGET)
 
-clean:
-	rm -f $(TARGET) $(OBJS) $(ENET_OBJS) hello3d
+$(EDITOR_TARGET): $(EDITOR_OBJS)
+	$(CC) -o $@ $(EDITOR_OBJS) $(LDFLAGS)
 
-.PHONY: run clean
+clean:
+	rm -f $(TARGET) $(EDITOR_TARGET) $(OBJS) $(ENET_OBJS) $(EDITOR_OBJS) hello3d
+
+.PHONY: run clean editor

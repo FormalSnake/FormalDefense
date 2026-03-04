@@ -8,6 +8,8 @@
 #define MAP_HEIGHT 15
 #define TILE_SIZE 1.0f
 #define MAX_WAYPOINTS 32
+#define MAX_MAP_NAME 64
+#define MAX_MAPS 16
 
 typedef enum {
     TILE_EMPTY,
@@ -24,15 +26,29 @@ typedef struct {
 } GridPos;
 
 typedef struct {
+    char name[MAX_MAP_NAME];
     TileType tiles[MAP_HEIGHT][MAP_WIDTH];
     GridPos waypoints[MAX_WAYPOINTS];
     int waypointCount;
 } Map;
+
+typedef struct {
+    char names[MAX_MAPS][MAX_MAP_NAME];
+    char paths[MAX_MAPS][256];
+    int count;
+} MapRegistry;
 
 void MapInit(Map *map);
 Vector3 MapGridToWorld(GridPos pos);
 GridPos MapWorldToGrid(Vector3 worldPos);
 bool MapCanPlaceTower(const Map *map, GridPos pos);
 void MapDraw(const Map *map);
+
+bool MapLoad(Map *map, const char *filePath);
+void MapSave(const Map *map, const char *filePath);
+bool MapLoadFromBuffer(Map *map, const char *data, int len);
+int MapSerialize(const Map *map, char *buf, int bufSize);
+
+void MapRegistryScan(MapRegistry *reg, const char *directory);
 
 #endif

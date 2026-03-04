@@ -58,6 +58,8 @@ typedef enum {
     MSG_GAME_STATE_SNAPSHOT,
     // Chat
     MSG_CHAT,
+    // Map data
+    MSG_MAP_DATA,
 } MessageType;
 
 // --- Packet Header ---
@@ -108,12 +110,21 @@ typedef struct {
     PacketHeader header;
     uint8_t playerCount;
     LobbyPlayerInfo players[NET_MAX_PLAYERS];
+    char selectedMap[MAX_MAP_NAME];
 } LobbyStateMsg;
 
 typedef struct {
     PacketHeader header;
     uint8_t playerCount;
+    char mapName[MAX_MAP_NAME];
 } GameStartMsg;
+
+typedef struct {
+    PacketHeader header;
+    char mapName[MAX_MAP_NAME];
+    uint16_t dataSize;
+    // Followed by dataSize bytes of .fdmap text
+} MapDataMsg;
 
 typedef struct {
     PacketHeader header;
@@ -234,6 +245,11 @@ typedef struct {
 
     float snapshotTimer;
     bool inGame;
+    bool mapDataReceived;
+
+    // Map selection (host)
+    char selectedMap[MAX_MAP_NAME];
+    char selectedMapPath[256];
 
     // Discovery (UDP)
     int discoverySocket;
@@ -264,6 +280,8 @@ void NetSendUpgradeTower(NetContext *ctx, EntityID towerID);
 void NetSendGiftGold(NetContext *ctx, uint8_t targetPlayer, int amount);
 void NetSendChat(NetContext *ctx, const char *message);
 void NetSendGameStart(NetContext *ctx);
+void NetSendMapData(NetContext *ctx, const Map *map);
+void NetBroadcastLobbyState(NetContext *ctx);
 
 void NetBroadcastSnapshot(NetContext *ctx, GameState *gs, Enemy enemies[],
                           Tower towers[], Projectile projectiles[]);

@@ -28,5 +28,6 @@ void LobbyStateInit(LobbyState *ls);
 void LobbyUpdate(LobbyState *ls, NetContext *ctx);
 void LobbyDraw(LobbyState *ls, NetContext *ctx, int screenW, int screenH);
 bool LobbyGameStarted(LobbyState *ls, NetContext *ctx);
+bool LobbyBackPressed(LobbyState *ls);
 
 #endif
