@@ -53,9 +53,6 @@ bool ChatHandleInput(ChatState *cs, NetContext *ctx)
     if (IsKeyPressed(KEY_ENTER)) {
         if (cs->inputLen > 0) {
             NetSendChat(ctx, cs->inputBuf);
-            // Add locally
-            ChatAddMessage(cs, ctx->localPlayerIndex,
-                          ctx->playerNames[ctx->localPlayerIndex], cs->inputBuf);
         }
         cs->inputActive = false;
         return true;
