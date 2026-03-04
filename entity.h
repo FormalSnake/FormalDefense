@@ -48,7 +48,8 @@ extern const EnemyConfig ENEMY_CONFIGS[ENEMY_TYPE_COUNT];
 
 void EnemySpawn(Enemy enemies[], int maxEnemies, EnemyType type, const Map *map);
 void EnemiesUpdate(Enemy enemies[], int maxEnemies, const Map *map, GameState *gs, float dt);
-void EnemiesDraw(const Enemy enemies[], int maxEnemies, Camera3D camera);
+void EnemiesDraw(const Enemy enemies[], int maxEnemies);
+void EnemiesDrawHUD(const Enemy enemies[], int maxEnemies, Camera3D camera);
 
 // --- Projectile ---
 

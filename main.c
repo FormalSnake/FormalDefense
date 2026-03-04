@@ -7,6 +7,13 @@
 #include <math.h>
 #include <string.h>
 
+// --- PS1 Graphics Constants ---
+
+#define PS1_DOWNSCALE 3
+#define PS1_JITTER_STRENGTH 1.0f
+#define PS1_COLOR_BANDS 24.0f
+#define BLOB_SHADOW_SEGMENTS 12
+
 // --- Scene ---
 
 typedef enum { SCENE_MENU, SCENE_GAME } Scene;
@@ -183,6 +190,24 @@ static void DrawSkybox(Camera3D camera)
     rlEnableDepthMask();
 }
 
+// --- Blob Shadow ---
+
+static void DrawBlobShadow(Vector3 center, float radius)
+{
+    float y = 0.01f;
+    Color col = (Color){ 0, 0, 0, 80 };
+    rlBegin(RL_TRIANGLES);
+    for (int i = 0; i < BLOB_SHADOW_SEGMENTS; i++) {
+        float a1 = (float)i / BLOB_SHADOW_SEGMENTS * 2.0f * PI;
+        float a2 = (float)(i + 1) / BLOB_SHADOW_SEGMENTS * 2.0f * PI;
+        rlColor4ub(col.r, col.g, col.b, col.a);
+        rlVertex3f(center.x, y, center.z);
+        rlVertex3f(center.x + cosf(a1) * radius, y, center.z + sinf(a1) * radius);
+        rlVertex3f(center.x + cosf(a2) * radius, y, center.z + sinf(a2) * radius);
+    }
+    rlEnd();
+}
+
 // --- UI Constants ---
 
 #define BOTTOM_BAR_HEIGHT 60
@@ -199,6 +224,42 @@ int main(void)
     InitWindow(1280, 720, "Formal Defense");
     SetExitKey(0);
     SetTargetFPS(60);
+
+    // --- PS1 Shader & Render Target ---
+    Shader ps1Shader = LoadShader("shaders/ps1.vs", "shaders/ps1.fs");
+    ps1Shader.locs[SHADER_LOC_MATRIX_MODEL] = GetShaderLocation(ps1Shader, "matModel");
+
+    int locResolution = GetShaderLocation(ps1Shader, "resolution");
+    int locJitter = GetShaderLocation(ps1Shader, "jitterStrength");
+    int locLightDir = GetShaderLocation(ps1Shader, "lightDir");
+    int locLightColor = GetShaderLocation(ps1Shader, "lightColor");
+    int locAmbientColor = GetShaderLocation(ps1Shader, "ambientColor");
+    int locColorBands = GetShaderLocation(ps1Shader, "colorBands");
+
+    float jitterStrength = PS1_JITTER_STRENGTH;
+    SetShaderValue(ps1Shader, locJitter, &jitterStrength, SHADER_UNIFORM_FLOAT);
+
+    float lightDir[3] = { 0.4f, -0.7f, 0.3f };
+    SetShaderValue(ps1Shader, locLightDir, lightDir, SHADER_UNIFORM_VEC3);
+
+    float lightColor[3] = { 0.7f, 0.7f, 0.65f };
+    SetShaderValue(ps1Shader, locLightColor, lightColor, SHADER_UNIFORM_VEC3);
+
+    float ambientColor[3] = { 0.3f, 0.3f, 0.35f };
+    SetShaderValue(ps1Shader, locAmbientColor, ambientColor, SHADER_UNIFORM_VEC3);
+
+    float colorBands = PS1_COLOR_BANDS;
+    SetShaderValue(ps1Shader, locColorBands, &colorBands, SHADER_UNIFORM_FLOAT);
+
+    int cachedScreenW = GetScreenWidth();
+    int cachedScreenH = GetScreenHeight();
+    int rtW = cachedScreenW / PS1_DOWNSCALE;
+    int rtH = cachedScreenH / PS1_DOWNSCALE;
+    RenderTexture2D renderTarget = LoadRenderTexture(rtW, rtH);
+    SetTextureFilter(renderTarget.texture, TEXTURE_FILTER_POINT);
+
+    float resolution[2] = { (float)rtW, (float)rtH };
+    SetShaderValue(ps1Shader, locResolution, resolution, SHADER_UNIFORM_VEC2);
 
     Scene currentScene = SCENE_MENU;
 
@@ -243,6 +304,20 @@ int main(void)
         int screenH = GetScreenHeight();
         Vector2 mouse = GetMousePosition();
 
+        // Recreate render target on window resize
+        if (screenW != cachedScreenW || screenH != cachedScreenH) {
+            cachedScreenW = screenW;
+            cachedScreenH = screenH;
+            UnloadRenderTexture(renderTarget);
+            rtW = screenW / PS1_DOWNSCALE;
+            rtH = screenH / PS1_DOWNSCALE;
+            renderTarget = LoadRenderTexture(rtW, rtH);
+            SetTextureFilter(renderTarget.texture, TEXTURE_FILTER_POINT);
+            resolution[0] = (float)rtW;
+            resolution[1] = (float)rtH;
+            SetShaderValue(ps1Shader, locResolution, resolution, SHADER_UNIFORM_VEC2);
+        }
+
         switch (currentScene) {
         case SCENE_MENU: {
             // --- Auto-rotate camera ---
@@ -259,14 +334,24 @@ int main(void)
             menuCamera.fovy = 45.0f;
             menuCamera.projection = CAMERA_PERSPECTIVE;
 
-            // --- Draw menu ---
-            BeginDrawing();
+            // --- Draw menu (3D to low-res target) ---
+            BeginTextureMode(renderTarget);
             ClearBackground((Color){ 30, 30, 35, 255 });
-
             BeginMode3D(menuCamera);
                 DrawSkybox(menuCamera);
-                MapDraw(&menuMap);
+                BeginShaderMode(ps1Shader);
+                    MapDraw(&menuMap);
+                EndShaderMode();
             EndMode3D();
+            EndTextureMode();
+
+            // --- Full-res output ---
+            BeginDrawing();
+            ClearBackground(BLACK);
+            DrawTexturePro(renderTarget.texture,
+                (Rectangle){ 0, 0, (float)rtW, -(float)rtH },
+                (Rectangle){ 0, 0, (float)screenW, (float)screenH },
+                (Vector2){ 0, 0 }, 0.0f, WHITE);
 
             // Dark overlay
             DrawRectangle(0, 0, screenW, screenH, (Color){ 0, 0, 0, 120 });
@@ -445,46 +530,77 @@ int main(void)
             selectedTowerIdx = -1;
 
         // =========================
-        // DRAW
+        // DRAW — 3D to low-res render target
         // =========================
-        BeginDrawing();
+        BeginTextureMode(renderTarget);
         ClearBackground((Color){ 30, 30, 35, 255 });
 
         BeginMode3D(camera);
             DrawSkybox(camera);
-            MapDraw(&map);
 
-            // Grid hover highlight
-            if (mouseOnGround && selectedTowerType >= 0 &&
-                mouseGrid.x >= 0 && mouseGrid.x < MAP_WIDTH &&
-                mouseGrid.z >= 0 && mouseGrid.z < MAP_HEIGHT) {
-                Vector3 ghostPos = MapGridToWorld(mouseGrid);
-                ghostPos.y = 0.35f;
-                Color ghostCol = canPlace ? (Color){ 0, 255, 0, 100 } : (Color){ 255, 0, 0, 100 };
-                DrawCubeV(ghostPos, (Vector3){ 0.7f, 0.7f, 0.7f }, ghostCol);
+            BeginShaderMode(ps1Shader);
+                MapDraw(&map);
 
-                // Range preview
-                if (canPlace) {
-                    float range = TOWER_CONFIGS[selectedTowerType][0].range;
-                    Vector3 rangeCenter = MapGridToWorld(mouseGrid);
-                    DrawRangeCircle(rangeCenter, range, (Color){ 255, 255, 255, 80 });
+                // Blob shadows under towers
+                for (int i = 0; i < MAX_TOWERS; i++) {
+                    if (!towers[i].active) continue;
+                    Vector3 tp = towers[i].worldPos;
+                    DrawBlobShadow((Vector3){ tp.x, 0.0f, tp.z }, 0.45f);
                 }
-            }
 
-            TowersDraw(towers, MAX_TOWERS);
+                // Blob shadows under enemies
+                for (int i = 0; i < MAX_ENEMIES; i++) {
+                    if (!enemies[i].active) continue;
+                    Vector3 ep = enemies[i].worldPos;
+                    DrawBlobShadow((Vector3){ ep.x, 0.0f, ep.z }, enemies[i].radius * 1.2f);
+                }
 
-            // Range indicator for selected tower
-            if (selectedTowerIdx >= 0 && towers[selectedTowerIdx].active) {
-                const Tower *st = &towers[selectedTowerIdx];
-                float range = TOWER_CONFIGS[st->type][st->level].range;
-                Vector3 rc = st->worldPos;
-                rc.y = 0.0f;
-                DrawRangeCircle(rc, range, (Color){ 255, 255, 100, 150 });
-            }
+                // Grid hover highlight
+                if (mouseOnGround && selectedTowerType >= 0 &&
+                    mouseGrid.x >= 0 && mouseGrid.x < MAP_WIDTH &&
+                    mouseGrid.z >= 0 && mouseGrid.z < MAP_HEIGHT) {
+                    Vector3 ghostPos = MapGridToWorld(mouseGrid);
+                    ghostPos.y = 0.35f;
+                    Color ghostCol = canPlace ? (Color){ 0, 255, 0, 100 } : (Color){ 255, 0, 0, 100 };
+                    DrawCubeV(ghostPos, (Vector3){ 0.7f, 0.7f, 0.7f }, ghostCol);
 
-            EnemiesDraw(enemies, MAX_ENEMIES, camera);
-            ProjectilesDraw(projectiles, MAX_PROJECTILES);
+                    // Range preview
+                    if (canPlace) {
+                        float range = TOWER_CONFIGS[selectedTowerType][0].range;
+                        Vector3 rangeCenter = MapGridToWorld(mouseGrid);
+                        DrawRangeCircle(rangeCenter, range, (Color){ 255, 255, 255, 80 });
+                    }
+                }
+
+                TowersDraw(towers, MAX_TOWERS);
+
+                // Range indicator for selected tower
+                if (selectedTowerIdx >= 0 && towers[selectedTowerIdx].active) {
+                    const Tower *st = &towers[selectedTowerIdx];
+                    float range = TOWER_CONFIGS[st->type][st->level].range;
+                    Vector3 rc = st->worldPos;
+                    rc.y = 0.0f;
+                    DrawRangeCircle(rc, range, (Color){ 255, 255, 100, 150 });
+                }
+
+                EnemiesDraw(enemies, MAX_ENEMIES);
+                ProjectilesDraw(projectiles, MAX_PROJECTILES);
+            EndShaderMode();
         EndMode3D();
+        EndTextureMode();
+
+        // =========================
+        // Full-res output
+        // =========================
+        BeginDrawing();
+        ClearBackground(BLACK);
+        DrawTexturePro(renderTarget.texture,
+            (Rectangle){ 0, 0, (float)rtW, -(float)rtH },
+            (Rectangle){ 0, 0, (float)screenW, (float)screenH },
+            (Vector2){ 0, 0 }, 0.0f, WHITE);
+
+        // Enemy health bars at native resolution
+        EnemiesDrawHUD(enemies, MAX_ENEMIES, camera);
 
         // =====================
         // 2D UI
@@ -720,6 +836,8 @@ int main(void)
         } // end switch
     }
 
+    UnloadRenderTexture(renderTarget);
+    UnloadShader(ps1Shader);
     CloseWindow();
     return 0;
 }

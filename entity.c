@@ -121,15 +121,20 @@ void EnemiesUpdate(Enemy enemies[], int maxEnemies, const Map *map, GameState *g
     }
 }
 
-void EnemiesDraw(const Enemy enemies[], int maxEnemies, Camera3D camera)
+void EnemiesDraw(const Enemy enemies[], int maxEnemies)
+{
+    for (int i = 0; i < maxEnemies; i++) {
+        if (!enemies[i].active) continue;
+        DrawSphere(enemies[i].worldPos, enemies[i].radius, enemies[i].color);
+    }
+}
+
+void EnemiesDrawHUD(const Enemy enemies[], int maxEnemies, Camera3D camera)
 {
     for (int i = 0; i < maxEnemies; i++) {
         if (!enemies[i].active) continue;
         const Enemy *e = &enemies[i];
 
-        DrawSphere(e->worldPos, e->radius, e->color);
-
-        // Health bar (billboard above enemy)
         Vector3 barPos = e->worldPos;
         barPos.y += e->radius + 0.4f;
         Vector2 screen = GetWorldToScreen(barPos, camera);
