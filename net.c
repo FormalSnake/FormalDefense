@@ -600,8 +600,10 @@ void NetSendChat(NetContext *ctx, const char *message)
     if (ctx->mode == NET_MODE_CLIENT && ctx->serverPeer) {
         NetSendChat_raw(ctx->serverPeer, &msg, sizeof(msg));
     } else if (ctx->mode == NET_MODE_HOST) {
-        // Host: broadcast directly
+        // Host: broadcast to clients and invoke local callback
         NetBroadcastChatAll(ctx, &msg, sizeof(msg));
+        if (g_netChatCallback)
+            g_netChatCallback(msg.playerIndex, ctx->playerNames[msg.playerIndex], msg.message);
     }
 }
 

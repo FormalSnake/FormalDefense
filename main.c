@@ -555,8 +555,8 @@ int main(void)
 
         if (gs.phase != PHASE_PAUSED) {
 
-        // --- Camera (only when not in UI) ---
-        if (!mouseInUI || IsKeyDown(KEY_W) || IsKeyDown(KEY_S) || IsKeyDown(KEY_A) || IsKeyDown(KEY_D))
+        // --- Camera (only when not in UI or chat) ---
+        if (!chatActive && (!mouseInUI || IsKeyDown(KEY_W) || IsKeyDown(KEY_S) || IsKeyDown(KEY_A) || IsKeyDown(KEY_D)))
             CameraControllerUpdate(&camCtrl, &camera, dt);
 
         // --- Bottom bar button clicks ---
