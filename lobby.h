@@ -22,6 +22,8 @@ typedef struct {
     char directIP[64];
     int directIPLen;
     bool editingIP;
+    bool backRequested;
+    bool hostRequested;
 } LobbyState;
 
 void LobbyStateInit(LobbyState *ls);

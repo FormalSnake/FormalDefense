@@ -457,10 +457,7 @@ int main(void)
             // Multiplayer button click
             if (mpHover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
                 LobbyStateInit(&lobbyState);
-                mapSelectForMultiplayer = true;
-                MapRegistryScan(&mapRegistry, "maps");
-                selectedMapIdx = 0;
-                currentScene = SCENE_MAP_SELECT;
+                currentScene = SCENE_LOBBY;
             }
 
             // Play button click
@@ -536,7 +533,6 @@ int main(void)
             if (canStart && startHover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
                 if (mapSelectForMultiplayer) {
                     // Host flow: load map, set up net context, go to lobby
-                    LobbyStateInit(&lobbyState);
                     if (lobbyState.usernameLen > 0) {
                         NetInit();
                         if (NetHostCreate(&netCtx, lobbyState.username)) {
@@ -565,7 +561,7 @@ int main(void)
 
             // Handle back
             if ((backHover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) || IsKeyPressed(KEY_ESCAPE)) {
-                currentScene = SCENE_MENU;
+                currentScene = mapSelectForMultiplayer ? SCENE_LOBBY : SCENE_MENU;
             }
         } break;
 
@@ -576,8 +572,17 @@ int main(void)
             ClearBackground((Color){ 20, 22, 28, 255 });
             LobbyDraw(&lobbyState, &netCtx, screenW, screenH);
 
-            // Back button in choose phase returns to menu
-            if (lobbyState.phase == LOBBY_CHOOSE && IsKeyPressed(KEY_ESCAPE)) {
+            // Host wants to pick a map
+            if (lobbyState.hostRequested) {
+                lobbyState.hostRequested = false;
+                mapSelectForMultiplayer = true;
+                MapRegistryScan(&mapRegistry, "maps");
+                selectedMapIdx = 0;
+                currentScene = SCENE_MAP_SELECT;
+            }
+
+            // Back button or ESC returns to menu
+            if (LobbyBackPressed(&lobbyState) || (lobbyState.phase == LOBBY_CHOOSE && IsKeyPressed(KEY_ESCAPE))) {
                 currentScene = SCENE_MENU;
             }
 

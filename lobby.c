@@ -115,11 +115,7 @@ void LobbyDraw(LobbyState *ls, NetContext *ctx, int screenW, int screenH)
         // Host / Join buttons
         if (DrawButton(cx - 100, 230, 200, 45, "Host Game", 24, mouse)) {
             if (ls->usernameLen > 0) {
-                NetInit();
-                if (NetHostCreate(ctx, ls->username)) {
-                    NetDiscoveryStart(ctx);
-                    ls->phase = LOBBY_HOST_WAIT;
-                }
+                ls->hostRequested = true;
             }
         }
 
@@ -134,7 +130,7 @@ void LobbyDraw(LobbyState *ls, NetContext *ctx, int screenW, int screenH)
         }
 
         if (DrawButton(cx - 100, 370, 200, 45, "Back", 24, mouse)) {
-            ls->phase = LOBBY_CHOOSE; // Will be handled by main.c scene switch
+            ls->backRequested = true;
         }
         break;
     }
@@ -295,5 +291,9 @@ bool LobbyGameStarted(LobbyState *ls, NetContext *ctx)
 
 bool LobbyBackPressed(LobbyState *ls)
 {
-    return ls->phase == LOBBY_CHOOSE;
+    if (ls->backRequested) {
+        ls->backRequested = false;
+        return true;
+    }
+    return false;
 }
