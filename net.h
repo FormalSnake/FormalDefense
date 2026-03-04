@@ -205,7 +205,7 @@ typedef struct {
     int16_t playerGold[NET_MAX_PLAYERS];
     uint8_t enemyCount;
     uint8_t towerCount;
-    uint8_t projectileCount;
+    uint16_t projectileCount;
     // Followed by: SnapshotEnemy[], SnapshotTower[], SnapshotProjectile[]
 } GameStateSnapshot;
 

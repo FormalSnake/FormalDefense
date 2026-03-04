@@ -1,7 +1,7 @@
 # Formal Defense — 3D Tower Defense Game
 
 ## Overview
-A 3D tower defense game built with C and Raylib. Features geometric shapes, grid-based maps, data-driven tower/enemy configs, and RTS-style camera controls.
+A 3D tower defense game built with C and Raylib. Features geometric shapes, grid-based maps, data-driven tower/enemy configs, RTS-style camera controls, and LAN multiplayer for up to 4 players.
 
 ## Build Commands
 ```bash
@@ -14,16 +14,23 @@ make clean  # Remove build artifacts
 
 | File | Role |
 |------|------|
-| `main.c` | Entry point, game loop, camera controller, HUD, input dispatch |
-| `game.h/c` | GameState, wave system, economy, game phase management |
-| `entity.h/c` | Tower, Enemy, Projectile structs + config tables + update/draw |
+| `main.c` | Entry point, game loop, scene management (Menu/Lobby/Game), camera controller, HUD, input dispatch |
+| `game.h/c` | GameState, wave system, economy, game phase management, multiplayer scaling |
+| `entity.h/c` | Tower, Enemy, Projectile structs + config tables + update/draw, EntityID system, player ownership |
 | `map.h/c` | Grid (20×15), tile types, waypoints, placement validation, rendering |
+| `net.h/c` | ENet networking: host/client, packet protocol, LAN discovery, snapshot broadcast |
+| `lobby.h/c` | Multiplayer lobby: username entry, host/join flow, LAN browser |
+| `chat.h/c` | In-game chat: circular buffer, input handling, fade-out rendering |
+| `vendor/enet/` | Embedded ENet library (compiled from source) |
 
 ## Key Conventions
 - **Struct-based OOP:** Each system uses a struct (Map, Tower, Enemy, etc.) with associated functions prefixed by the type name
 - **Config tables:** Static const arrays of config structs define tower/enemy types and levels
 - **Active-flag entity pools:** Fixed-size arrays with `bool active` flags — no dynamic allocation
 - **Data-driven design:** Game balance tuned via config tables, not hardcoded in logic
+- **EntityID system:** 16-bit IDs with type bits (top 2 bits = entity type, bottom 14 = sequence)
+- **Host-authoritative networking:** Host runs simulation, clients send action requests, host validates and confirms
+- **Scene state machine:** `SCENE_MENU → SCENE_LOBBY → SCENE_GAME`
 
 ## Game Design Reference
 
@@ -46,3 +53,22 @@ make clean  # Remove build artifacts
 - Starting gold: 250
 - Starting lives: 20
 - 10 escalating waves
+
+## Multiplayer
+
+### Networking
+- ENet on port 7777, 3 channels: reliable (0), snapshot (1), chat (2)
+- 20 Hz state snapshots from host to clients
+- LAN discovery via UDP broadcast on port 7778
+
+### Lobby
+- 4-phase state machine: `LOBBY_CHOOSE → LOBBY_HOST_WAIT / LOBBY_JOIN_BROWSE → LOBBY_JOIN_WAIT`
+- Username entry, direct IP connect, and LAN game browser
+
+### Economy Scaling
+- Per-player gold tracked in `playerGold[4]`
+- HP and count multipliers based on player count (`hpMultiplier`, `countMultiplier`)
+- Gift gold mechanic: send 25g to another player
+
+### Player Colors
+- `PLAYER_COLORS[4]` — used for tower tinting, chat names, lobby UI, and HUD indicators

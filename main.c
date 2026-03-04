@@ -480,8 +480,7 @@ int main(void)
                 if (netCtx.mode == NET_MODE_HOST) {
                     GameStateInitMultiplayer(&gs, netCtx.playerCount);
                 } else {
-                    GameStateInit(&gs);
-                    gs.playerCount = netCtx.playerCount;
+                    GameStateInitMultiplayer(&gs, netCtx.playerCount);
                 }
                 memset(enemies, 0, sizeof(enemies));
                 memset(towers, 0, sizeof(towers));
