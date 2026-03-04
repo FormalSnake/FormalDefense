@@ -170,7 +170,8 @@ void EnemiesUpdate(Enemy enemies[], int maxEnemies, const Map *map, GameState *g
         } else {
             e->worldPos.x = current.x + (next.x - current.x) * e->pathProgress;
             e->worldPos.z = current.z + (next.z - current.z) * e->pathProgress;
-            e->worldPos.y = current.y + (next.y - current.y) * e->pathProgress + e->radius;
+            GridPos g = MapWorldToGrid(e->worldPos);
+            e->worldPos.y = MapGetElevationY(map, g.x, g.z) + e->radius;
         }
     }
 }
