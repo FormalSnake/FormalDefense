@@ -165,6 +165,77 @@ static Mesh skyboxMesh = {0};
 static Material skyboxMaterial = {0};
 static bool skyboxReady = false;
 
+// --- Water plane (pre-baked mesh) ---
+
+#define WATER_Y -0.3f
+
+static Mesh waterMesh = {0};
+static Material waterMaterial = {0};
+static Shader waterShader = {0};
+static int waterLocTime = -1;
+static bool waterReady = false;
+
+static void BuildWaterMesh(void)
+{
+    float xMin = -60.0f, xMax = 80.0f;
+    float zMin = -60.0f, zMax = 75.0f;
+    float step = 2.0f;
+
+    int xSteps = (int)((xMax - xMin) / step);
+    int zSteps = (int)((zMax - zMin) / step);
+    int triCount = xSteps * zSteps * 2;
+    int vertCount = triCount * 3;
+
+    float *verts = malloc(vertCount * 3 * sizeof(float));
+    unsigned char *cols = malloc(vertCount * 4 * sizeof(unsigned char));
+    int vi = 0;
+
+    unsigned char wr = 40, wg = 80, wb = 140;
+
+    for (int zi = 0; zi < zSteps; zi++) {
+        for (int xi = 0; xi < xSteps; xi++) {
+            float x0 = xMin + xi * step;
+            float x1 = x0 + step;
+            float z0 = zMin + zi * step;
+            float z1 = z0 + step;
+
+            #define WATER_VERT(px,pz) do { \
+                verts[vi*3]=px; verts[vi*3+1]=WATER_Y; verts[vi*3+2]=pz; \
+                cols[vi*4]=wr; cols[vi*4+1]=wg; cols[vi*4+2]=wb; cols[vi*4+3]=255; \
+                vi++; \
+            } while(0)
+
+            WATER_VERT(x0, z0);
+            WATER_VERT(x1, z1);
+            WATER_VERT(x1, z0);
+
+            WATER_VERT(x0, z0);
+            WATER_VERT(x0, z1);
+            WATER_VERT(x1, z1);
+
+            #undef WATER_VERT
+        }
+    }
+
+    waterMesh = (Mesh){0};
+    waterMesh.vertexCount = vertCount;
+    waterMesh.triangleCount = triCount;
+    waterMesh.vertices = verts;
+    waterMesh.colors = cols;
+    UploadMesh(&waterMesh, false);
+
+    waterMaterial = LoadMaterialDefault();
+    waterMaterial.shader = waterShader;
+    waterReady = true;
+}
+
+static void DrawWater(float totalTime)
+{
+    if (!waterReady) return;
+    SetShaderValue(waterShader, waterLocTime, &totalTime, SHADER_UNIFORM_FLOAT);
+    DrawMesh(waterMesh, waterMaterial, MatrixIdentity());
+}
+
 static void BuildSkyboxMesh(void)
 {
     int slices = 16;
@@ -367,6 +438,24 @@ int main(void)
     float colorBands = PS1_COLOR_BANDS;
     SetShaderValue(ps1Shader, locColorBands, &colorBands, SHADER_UNIFORM_FLOAT);
 
+    // --- Water Shader ---
+    waterShader = LoadShader("shaders/water.vs", "shaders/water.fs");
+    waterShader.locs[SHADER_LOC_MATRIX_MODEL] = GetShaderLocation(waterShader, "matModel");
+    waterLocTime = GetShaderLocation(waterShader, "time");
+
+    int wLocResolution = GetShaderLocation(waterShader, "resolution");
+    int wLocJitter = GetShaderLocation(waterShader, "jitterStrength");
+    int wLocLightDir = GetShaderLocation(waterShader, "lightDir");
+    int wLocLightColor = GetShaderLocation(waterShader, "lightColor");
+    int wLocAmbientColor = GetShaderLocation(waterShader, "ambientColor");
+    int wLocColorBands = GetShaderLocation(waterShader, "colorBands");
+
+    SetShaderValue(waterShader, wLocJitter, &jitterStrength, SHADER_UNIFORM_FLOAT);
+    SetShaderValue(waterShader, wLocLightDir, lightDir, SHADER_UNIFORM_VEC3);
+    SetShaderValue(waterShader, wLocLightColor, lightColor, SHADER_UNIFORM_VEC3);
+    SetShaderValue(waterShader, wLocAmbientColor, ambientColor, SHADER_UNIFORM_VEC3);
+    SetShaderValue(waterShader, wLocColorBands, &colorBands, SHADER_UNIFORM_FLOAT);
+
     int cachedScreenW = GetScreenWidth();
     int cachedScreenH = GetScreenHeight();
     int rtW = cachedScreenW / settings.ps1Downscale;
@@ -376,11 +465,14 @@ int main(void)
 
     float resolution[2] = { (float)rtW, (float)rtH };
     SetShaderValue(ps1Shader, locResolution, resolution, SHADER_UNIFORM_VEC2);
+    SetShaderValue(waterShader, wLocResolution, resolution, SHADER_UNIFORM_VEC2);
 
     Scene currentScene = SCENE_MENU;
+    float totalTime = 0.0f;
 
     // --- Pre-baked meshes ---
     BuildSkyboxMesh();
+    BuildWaterMesh();
     InitBlobShadowTable();
 
     Mesh sphereMesh = GenMeshSphere(1.0f, 8, 8);
@@ -455,6 +547,7 @@ int main(void)
     while (!WindowShouldClose())
     {
         float dt = GetFrameTime();
+        totalTime += dt;
         int screenW = GetScreenWidth();
         int screenH = GetScreenHeight();
         Vector2 mouse = GetMousePosition();
@@ -477,6 +570,7 @@ int main(void)
             resolution[0] = (float)rtW;
             resolution[1] = (float)rtH;
             SetShaderValue(ps1Shader, locResolution, resolution, SHADER_UNIFORM_VEC2);
+            SetShaderValue(waterShader, wLocResolution, resolution, SHADER_UNIFORM_VEC2);
         }
 
         switch (currentScene) {
@@ -500,6 +594,7 @@ int main(void)
             ClearBackground((Color){ 30, 30, 35, 255 });
             BeginMode3D(menuCamera);
                 DrawSkybox(menuCamera);
+                DrawWater(totalTime);
                 MapDrawMesh(&menuMapMesh);
             EndMode3D();
             EndTextureMode();
@@ -1082,6 +1177,7 @@ int main(void)
 
         BeginMode3D(camera);
             DrawSkybox(camera);
+            DrawWater(totalTime);
 
             MapDrawMesh(&gameMapMesh);
 
@@ -1544,6 +1640,8 @@ int main(void)
     MapFreeMesh(&menuMapMesh);
     MapFreeMesh(&gameMapMesh);
     if (skyboxReady) UnloadMesh(skyboxMesh);
+    if (waterReady) UnloadMesh(waterMesh);
+    UnloadShader(waterShader);
     UnloadModel(sphereModel);
     UnloadRenderTexture(renderTarget);
     UnloadShader(ps1Shader);

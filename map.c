@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <math.h>
 #include <dirent.h>
 
 // --- Path Tracing ---
@@ -461,8 +462,66 @@ static float TerrainNoise(float x, float z)
 
 // --- Pre-baked Map Mesh ---
 
-// Max triangles: tile tops (300*2) + cliff faces (rough upper bound ~300*4*2) = ~3000
-#define MAP_MESH_MAX_TRIS 4096
+// Max triangles: tile tops (300*2) + cliff faces (~3000) + island skirt (~1600) = ~5500
+#define MAP_MESH_MAX_TRIS 8192
+
+// --- Island Skirt Constants ---
+#define ISLAND_SKIRT_WIDTH 8
+#define ISLAND_WATER_Y -0.3f
+
+// Returns 0.0-1.0 based on noise-perturbed elliptical distance from map center
+static float IslandAlpha(float wx, float wz)
+{
+    float cx = MAP_WIDTH * TILE_SIZE * 0.5f;
+    float cz = MAP_HEIGHT * TILE_SIZE * 0.5f;
+    float rx = cx + ISLAND_SKIRT_WIDTH * TILE_SIZE * 0.4f;
+    float rz = cz + ISLAND_SKIRT_WIDTH * TILE_SIZE * 0.4f;
+
+    float dx = (wx - cx) / rx;
+    float dz = (wz - cz) / rz;
+    float dist = sqrtf(dx * dx + dz * dz);
+
+    // Perturb with low-frequency noise for organic coastline
+    float noise = TerrainNoise(wx * 0.15f, wz * 0.15f) * 4.0f;
+    dist += noise;
+
+    // Map: dist=0 → alpha=1 (center), dist=1 → alpha=0 (coast edge)
+    return 1.0f - dist;
+}
+
+// Returns vertex Y: terrain noise inland, beach slope near coast, cliff drop below water
+static float SkirtY(float alpha, float wx, float wz)
+{
+    if (alpha >= 0.15f) {
+        // Inland — use terrain noise
+        return TerrainNoise(wx, wz);
+    } else if (alpha > 0.0f) {
+        // Beach transition — slope down from terrain to near water
+        float t = alpha / 0.15f;
+        float noiseY = TerrainNoise(wx, wz);
+        return noiseY * t + 0.05f * (1.0f - t);
+    } else {
+        // Below coastline — cliff drop to below water
+        float depth = -alpha;
+        float cliffY = ISLAND_WATER_Y - depth * 2.0f;
+        if (cliffY < ISLAND_WATER_Y - 1.0f) cliffY = ISLAND_WATER_Y - 1.0f;
+        return cliffY;
+    }
+}
+
+// Returns skirt vertex color: grass, sand/beach, or dark cliff
+static Color SkirtColor(float alpha, int xi, int zi, int corner)
+{
+    Color base;
+    if (alpha > 0.55f) {
+        base = (Color){ 100, 160, 80, 255 };  // grass
+    } else if (alpha > 0.0f) {
+        base = (Color){ 210, 190, 140, 255 };  // sand/beach
+    } else {
+        base = (Color){ 80, 70, 55, 255 };     // dark cliff below water
+    }
+    return PerturbColor(base, xi, zi, corner);
+}
 
 void MapBuildMesh(MapMesh *mm, const Map *map, Shader ps1Shader)
 {
@@ -598,6 +657,67 @@ void MapBuildMesh(MapMesh *mm, const Map *map, Shader ps1Shader)
                 EMIT_VERT(x1, elev, z0, cliff.r, cliff.g, cliff.b, 255);
                 EMIT_VERT(x1, 0.0f, z0, cliff.r, cliff.g, cliff.b, 255);
             }
+        }
+    }
+
+    // Pass 3: Island skirt — extends terrain with beach and cliff around map edges
+    for (int zi = -ISLAND_SKIRT_WIDTH; zi < MAP_HEIGHT + ISLAND_SKIRT_WIDTH; zi++) {
+        for (int xi = -ISLAND_SKIRT_WIDTH; xi < MAP_WIDTH + ISLAND_SKIRT_WIDTH; xi++) {
+            // Skip cells inside the existing map grid
+            if (xi >= 0 && xi < MAP_WIDTH && zi >= 0 && zi < MAP_HEIGHT) continue;
+
+            float x0 = xi * TILE_SIZE;
+            float x1 = x0 + TILE_SIZE;
+            float z0 = zi * TILE_SIZE;
+            float z1 = z0 + TILE_SIZE;
+
+            // Corner alphas and Y values
+            float a00 = IslandAlpha(x0, z0);
+            float a10 = IslandAlpha(x1, z0);
+            float a01 = IslandAlpha(x0, z1);
+            float a11 = IslandAlpha(x1, z1);
+
+            // Skip cells fully underwater (all corners well below coast)
+            if (a00 < -0.3f && a10 < -0.3f && a01 < -0.3f && a11 < -0.3f) continue;
+
+            // For border cells adjacent to the map, stitch Y to match map terrain noise
+            float y00, y10, y01, y11;
+            if (xi >= -1 && xi <= MAP_WIDTH && zi >= -1 && zi <= MAP_HEIGHT) {
+                // Use terrain noise at integer coords to match map grid corners
+                int cx0 = xi, cz0 = zi;
+                int cx1 = xi + 1, cz1 = zi + 1;
+                float e00 = (cx0 >= 0 && cx0 < MAP_WIDTH && cz0 >= 0 && cz0 < MAP_HEIGHT)
+                            ? map->elevation[cz0][cx0] * ELEVATION_HEIGHT : 0.0f;
+                float e10 = (cx1 >= 0 && cx1 < MAP_WIDTH && cz0 >= 0 && cz0 < MAP_HEIGHT)
+                            ? map->elevation[cz0][cx1] * ELEVATION_HEIGHT : 0.0f;
+                float e01 = (cx0 >= 0 && cx0 < MAP_WIDTH && cz1 >= 0 && cz1 < MAP_HEIGHT)
+                            ? map->elevation[cz1][cx0] * ELEVATION_HEIGHT : 0.0f;
+                float e11 = (cx1 >= 0 && cx1 < MAP_WIDTH && cz1 >= 0 && cz1 < MAP_HEIGHT)
+                            ? map->elevation[cz1][cx1] * ELEVATION_HEIGHT : 0.0f;
+
+                y00 = (a00 >= 0.15f) ? e00 + TerrainNoise(cx0, cz0) : SkirtY(a00, x0, z0);
+                y10 = (a10 >= 0.15f) ? e10 + TerrainNoise(cx1, cz0) : SkirtY(a10, x1, z0);
+                y01 = (a01 >= 0.15f) ? e01 + TerrainNoise(cx0, cz1) : SkirtY(a01, x0, z1);
+                y11 = (a11 >= 0.15f) ? e11 + TerrainNoise(cx1, cz1) : SkirtY(a11, x1, z1);
+            } else {
+                y00 = SkirtY(a00, x0, z0);
+                y10 = SkirtY(a10, x1, z0);
+                y01 = SkirtY(a01, x0, z1);
+                y11 = SkirtY(a11, x1, z1);
+            }
+
+            Color c0 = SkirtColor(a00, xi, zi, 0);
+            Color c1 = SkirtColor(a10, xi, zi, 1);
+            Color c2 = SkirtColor(a01, xi, zi, 2);
+            Color c3 = SkirtColor(a11, xi, zi, 3);
+
+            EMIT_VERT(x0, y00, z0, c0.r, c0.g, c0.b, 255);
+            EMIT_VERT(x1, y11, z1, c3.r, c3.g, c3.b, 255);
+            EMIT_VERT(x1, y10, z0, c1.r, c1.g, c1.b, 255);
+
+            EMIT_VERT(x0, y00, z0, c0.r, c0.g, c0.b, 255);
+            EMIT_VERT(x0, y01, z1, c2.r, c2.g, c2.b, 255);
+            EMIT_VERT(x1, y11, z1, c3.r, c3.g, c3.b, 255);
         }
     }
 
