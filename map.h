@@ -10,6 +10,8 @@
 #define MAX_WAYPOINTS 32
 #define MAX_MAP_NAME 64
 #define MAX_MAPS 16
+#define ELEVATION_HEIGHT 0.5f
+#define MAX_ELEVATION 4
 
 typedef enum {
     TILE_EMPTY,
@@ -28,6 +30,7 @@ typedef struct {
 typedef struct {
     char name[MAX_MAP_NAME];
     TileType tiles[MAP_HEIGHT][MAP_WIDTH];
+    int elevation[MAP_HEIGHT][MAP_WIDTH];
     GridPos waypoints[MAX_WAYPOINTS];
     int waypointCount;
 } Map;
@@ -40,6 +43,8 @@ typedef struct {
 
 void MapInit(Map *map);
 Vector3 MapGridToWorld(GridPos pos);
+Vector3 MapGridToWorldElevated(const Map *map, GridPos pos);
+float MapGetElevationY(const Map *map, int x, int z);
 GridPos MapWorldToGrid(Vector3 worldPos);
 bool MapCanPlaceTower(const Map *map, GridPos pos);
 void MapDraw(const Map *map);

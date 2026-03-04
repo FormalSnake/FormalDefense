@@ -220,7 +220,7 @@ static void HostHandleAction(NetContext *ctx, ENetPeer *peer, const uint8_t *dat
             gs->playerGold[playerIdx] >= cost) {
 
             gs->playerGold[playerIdx] -= cost;
-            TowerPlace(towers, MAX_TOWERS, (TowerType)act->towerType, pos, (uint8_t)playerIdx, gs);
+            TowerPlace(towers, MAX_TOWERS, (TowerType)act->towerType, pos, (uint8_t)playerIdx, gs, map);
             map->tiles[pos.z][pos.x] = TILE_TOWER;
 
             // Find the tower we just placed to get its ID
@@ -400,7 +400,7 @@ static void ClientHandlePacket(NetContext *ctx, const uint8_t *data, size_t size
         if (!existing) {
             // Use a temporary gs to assign the correct ID
             uint16_t savedSeq = gs->nextEntitySeq;
-            TowerPlace(towers, MAX_TOWERS, (TowerType)msg->towerType, pos, msg->ownerPlayer, gs);
+            TowerPlace(towers, MAX_TOWERS, (TowerType)msg->towerType, pos, msg->ownerPlayer, gs, map);
             // Fix the ID to match host's
             for (int i = 0; i < MAX_TOWERS; i++) {
                 if (towers[i].active && towers[i].gridPos.x == pos.x && towers[i].gridPos.z == pos.z
@@ -468,7 +468,9 @@ static void ClientHandlePacket(NetContext *ctx, const uint8_t *data, size_t size
             enemies[i].slowFactor = se->slowFactor / 255.0f;
             enemies[i].radius = ENEMY_CONFIGS[se->type].radius;
             enemies[i].color = ENEMY_CONFIGS[se->type].color;
-            enemies[i].worldPos.y = enemies[i].radius;
+            // Derive Y from elevation at current grid position + radius
+            GridPos eGrid = MapWorldToGrid(enemies[i].worldPos);
+            enemies[i].worldPos.y = MapGetElevationY(map, eGrid.x, eGrid.z) + enemies[i].radius;
         }
         ptr += enemyDataSize;
         remaining -= enemyDataSize;
@@ -486,8 +488,8 @@ static void ClientHandlePacket(NetContext *ctx, const uint8_t *data, size_t size
             towers[i].type = (TowerType)st->type;
             towers[i].level = st->level;
             towers[i].gridPos = (GridPos){ st->gridX, st->gridZ };
-            towers[i].worldPos = MapGridToWorld(towers[i].gridPos);
-            towers[i].worldPos.y = 0.35f;
+            towers[i].worldPos = MapGridToWorldElevated(map, towers[i].gridPos);
+            towers[i].worldPos.y += 0.35f;
             towers[i].ownerPlayer = st->ownerPlayer;
             towers[i].cooldownTimer = 0.0f;
             // Re-mark map tile

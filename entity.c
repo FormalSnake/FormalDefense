@@ -112,8 +112,8 @@ void EnemySpawn(Enemy enemies[], int maxEnemies, EnemyType type, const Map *map,
                 .radius = cfg->radius,
                 .color = cfg->color,
             };
-            enemies[i].worldPos = MapGridToWorld(map->waypoints[0]);
-            enemies[i].worldPos.y = cfg->radius;
+            enemies[i].worldPos = MapGridToWorldElevated(map, map->waypoints[0]);
+            enemies[i].worldPos.y += cfg->radius;
             return;
         }
     }
@@ -147,8 +147,8 @@ void EnemiesUpdate(Enemy enemies[], int maxEnemies, const Map *map, GameState *g
             continue;
         }
 
-        Vector3 current = MapGridToWorld(map->waypoints[e->waypointIndex]);
-        Vector3 next = MapGridToWorld(map->waypoints[e->waypointIndex + 1]);
+        Vector3 current = MapGridToWorldElevated(map, map->waypoints[e->waypointIndex]);
+        Vector3 next = MapGridToWorldElevated(map, map->waypoints[e->waypointIndex + 1]);
         float segLen = Vector3Distance(current, next);
 
         if (segLen < 0.01f) {
@@ -157,7 +157,12 @@ void EnemiesUpdate(Enemy enemies[], int maxEnemies, const Map *map, GameState *g
             continue;
         }
 
-        e->pathProgress += (e->speed * dt) / segLen;
+        // Slope speed modifier
+        float slopeFactor = 1.0f;
+        if (next.y > current.y + 0.01f) slopeFactor = 0.7f;       // uphill
+        else if (next.y < current.y - 0.01f) slopeFactor = 1.3f;  // downhill
+
+        e->pathProgress += (e->speed * slopeFactor * dt) / segLen;
 
         if (e->pathProgress >= 1.0f) {
             e->waypointIndex++;
@@ -165,7 +170,7 @@ void EnemiesUpdate(Enemy enemies[], int maxEnemies, const Map *map, GameState *g
         } else {
             e->worldPos.x = current.x + (next.x - current.x) * e->pathProgress;
             e->worldPos.z = current.z + (next.z - current.z) * e->pathProgress;
-            e->worldPos.y = e->radius;
+            e->worldPos.y = current.y + (next.y - current.y) * e->pathProgress + e->radius;
         }
     }
 }
@@ -201,7 +206,7 @@ void EnemiesDrawHUD(const Enemy enemies[], int maxEnemies, Camera3D camera)
 // --- Tower ---
 
 void TowerPlace(Tower towers[], int maxTowers, TowerType type, GridPos pos,
-                uint8_t ownerPlayer, GameState *gs)
+                uint8_t ownerPlayer, GameState *gs, const Map *map)
 {
     for (int i = 0; i < maxTowers; i++) {
         if (!towers[i].active) {
@@ -212,19 +217,21 @@ void TowerPlace(Tower towers[], int maxTowers, TowerType type, GridPos pos,
                 .type = type,
                 .level = 0,
                 .gridPos = pos,
-                .worldPos = MapGridToWorld(pos),
+                .worldPos = MapGridToWorldElevated(map, pos),
                 .cooldownTimer = 0.0f,
                 .ownerPlayer = ownerPlayer,
             };
-            towers[i].worldPos.y = 0.35f;
+            towers[i].worldPos.y += 0.35f;
             return;
         }
     }
 }
 
-static int TowerFindTarget(const Tower *tower, const Enemy enemies[], int maxEnemies)
+static int TowerFindTarget(const Tower *tower, const Enemy enemies[], int maxEnemies,
+                           const Map *map)
 {
     const TowerConfig *cfg = &TOWER_CONFIGS[tower->type][tower->level];
+    float towerElevY = MapGetElevationY(map, tower->gridPos.x, tower->gridPos.z);
     int bestIdx = -1;
     int bestWaypoint = -1;
     float bestProgress = -1.0f;
@@ -232,7 +239,14 @@ static int TowerFindTarget(const Tower *tower, const Enemy enemies[], int maxEne
     for (int i = 0; i < maxEnemies; i++) {
         if (!enemies[i].active) continue;
         float dist = Vector3Distance(tower->worldPos, enemies[i].worldPos);
-        if (dist <= cfg->range) {
+        // Elevation range bonus: +1 per elevation level above target
+        GridPos enemyGrid = MapWorldToGrid(enemies[i].worldPos);
+        float enemyElevY = MapGetElevationY(map, enemyGrid.x, enemyGrid.z);
+        float elevBonus = 0.0f;
+        if (towerElevY > enemyElevY)
+            elevBonus = towerElevY - enemyElevY;
+        float effectiveRange = cfg->range + elevBonus;
+        if (dist <= effectiveRange) {
             if (enemies[i].waypointIndex > bestWaypoint ||
                 (enemies[i].waypointIndex == bestWaypoint && enemies[i].pathProgress > bestProgress)) {
                 bestIdx = i;
@@ -245,7 +259,8 @@ static int TowerFindTarget(const Tower *tower, const Enemy enemies[], int maxEne
 }
 
 void TowersUpdate(Tower towers[], int maxTowers, Enemy enemies[], int maxEnemies,
-                  Projectile projectiles[], int maxProjectiles, GameState *gs, float dt)
+                  Projectile projectiles[], int maxProjectiles, GameState *gs,
+                  const Map *map, float dt)
 {
     for (int i = 0; i < maxTowers; i++) {
         if (!towers[i].active) continue;
@@ -255,7 +270,7 @@ void TowersUpdate(Tower towers[], int maxTowers, Enemy enemies[], int maxEnemies
         t->cooldownTimer -= dt;
         if (t->cooldownTimer > 0.0f) continue;
 
-        int target = TowerFindTarget(t, enemies, maxEnemies);
+        int target = TowerFindTarget(t, enemies, maxEnemies, map);
         if (target < 0) continue;
 
         t->cooldownTimer = 1.0f / cfg->fireRate;

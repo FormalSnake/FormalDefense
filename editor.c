@@ -10,11 +10,13 @@ typedef enum {
     TOOL_OBSTACLE,
     TOOL_WAYPOINT_ADD,
     TOOL_WAYPOINT_DEL,
+    TOOL_ELEVATE_UP,
+    TOOL_ELEVATE_DOWN,
     TOOL_COUNT,
 } EditorTool;
 
 static const char *TOOL_NAMES[] = {
-    "Empty", "Obstacle", "Waypt+", "WayptX",
+    "Empty", "Obstacle", "Waypt+", "WayptX", "Elev+", "Elev-",
 };
 
 // --- Editor State ---
@@ -127,6 +129,22 @@ int main(void)
                     if (ed.map.tiles[gridMouseZ][gridMouseX] == TILE_EMPTY) {
                         ed.map.tiles[gridMouseZ][gridMouseX] = TILE_OBSTACLE;
                         ed.dirty = true;
+                    }
+                    break;
+                case TOOL_ELEVATE_UP:
+                    if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+                        if (ed.map.elevation[gridMouseZ][gridMouseX] < MAX_ELEVATION) {
+                            ed.map.elevation[gridMouseZ][gridMouseX]++;
+                            ed.dirty = true;
+                        }
+                    }
+                    break;
+                case TOOL_ELEVATE_DOWN:
+                    if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+                        if (ed.map.elevation[gridMouseZ][gridMouseX] > 0) {
+                            ed.map.elevation[gridMouseZ][gridMouseX]--;
+                            ed.dirty = true;
+                        }
                     }
                     break;
                 case TOOL_WAYPOINT_ADD:
@@ -248,8 +266,27 @@ int main(void)
                 int px = GRID_OFFSET_X + x * CELL_SIZE;
                 int py = GRID_OFFSET_Y + z * CELL_SIZE;
                 Color c = TileColor(ed.map.tiles[z][x]);
+
+                // Tint lighter for higher elevation (+15 RGB per level)
+                int elev = ed.map.elevation[z][x];
+                if (elev > 0) {
+                    int boost = elev * 15;
+                    int r = c.r + boost; if (r > 255) r = 255;
+                    int g = c.g + boost; if (g > 255) g = 255;
+                    int b = c.b + boost; if (b > 255) b = 255;
+                    c = (Color){ (unsigned char)r, (unsigned char)g, (unsigned char)b, 255 };
+                }
+
                 DrawRectangle(px + 1, py + 1, CELL_SIZE - 2, CELL_SIZE - 2, c);
                 DrawRectangleLines(px, py, CELL_SIZE, CELL_SIZE, (Color){ 50, 50, 50, 150 });
+
+                // Display elevation number
+                if (elev > 0) {
+                    const char *elevStr = TextFormat("%d", elev);
+                    int tw = MeasureText(elevStr, 12);
+                    DrawText(elevStr, px + (CELL_SIZE - tw) / 2, py + (CELL_SIZE - 12) / 2, 12,
+                             (Color){ 255, 255, 255, 200 });
+                }
             }
         }
 
@@ -337,6 +374,7 @@ int main(void)
             strncpy(savedName, ed.map.name, MAX_MAP_NAME);
             memset(&ed.map, 0, sizeof(Map));
             strncpy(ed.map.name, savedName, MAX_MAP_NAME);
+            // elevation is zeroed by memset — that's correct for clear
             ed.dirty = true;
         }
 

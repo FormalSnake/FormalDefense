@@ -95,16 +95,50 @@ static void CameraControllerUpdate(CameraController *cc, Camera3D *cam, float dt
 
 // --- Mouse Ray → Ground Plane ---
 
-static bool GetMouseGroundPos(Camera3D camera, Vector3 *outPos)
+static bool GetMouseGroundPos(Camera3D camera, const Map *map, Vector3 *outPos)
 {
     Ray ray = GetScreenToWorldRay(GetMousePosition(), camera);
     if (fabsf(ray.direction.y) < 0.001f) return false;
-    float t = -ray.position.y / ray.direction.y;
-    if (t < 0.0f) return false;
-    outPos->x = ray.position.x + ray.direction.x * t;
-    outPos->y = 0.0f;
-    outPos->z = ray.position.z + ray.direction.z * t;
-    return true;
+
+    // Test each tile's elevation plane, find closest valid hit
+    float bestT = 1e9f;
+    bool found = false;
+
+    for (int z = 0; z < MAP_HEIGHT; z++) {
+        for (int x = 0; x < MAP_WIDTH; x++) {
+            float elevY = map->elevation[z][x] * ELEVATION_HEIGHT;
+            float t = (elevY - ray.position.y) / ray.direction.y;
+            if (t < 0.0f || t >= bestT) continue;
+
+            float hx = ray.position.x + ray.direction.x * t;
+            float hz = ray.position.z + ray.direction.z * t;
+
+            // Check if hit is within this tile's XZ bounds
+            float tileX0 = x * TILE_SIZE;
+            float tileZ0 = z * TILE_SIZE;
+            if (hx >= tileX0 && hx < tileX0 + TILE_SIZE &&
+                hz >= tileZ0 && hz < tileZ0 + TILE_SIZE) {
+                bestT = t;
+                outPos->x = hx;
+                outPos->y = elevY;
+                outPos->z = hz;
+                found = true;
+            }
+        }
+    }
+
+    // Fallback: intersect y=0 plane for tiles at elevation 0
+    if (!found) {
+        float t = -ray.position.y / ray.direction.y;
+        if (t >= 0.0f) {
+            outPos->x = ray.position.x + ray.direction.x * t;
+            outPos->y = 0.0f;
+            outPos->z = ray.position.z + ray.direction.z * t;
+            found = true;
+        }
+    }
+
+    return found;
 }
 
 // --- Draw Range Circle ---
@@ -112,11 +146,12 @@ static bool GetMouseGroundPos(Camera3D camera, Vector3 *outPos)
 static void DrawRangeCircle(Vector3 center, float radius, Color color)
 {
     int segments = 48;
+    float y = center.y + 0.02f;
     for (int i = 0; i < segments; i++) {
         float a1 = (float)i / segments * 2.0f * PI;
         float a2 = (float)(i + 1) / segments * 2.0f * PI;
-        Vector3 p1 = { center.x + cosf(a1) * radius, 0.02f, center.z + sinf(a1) * radius };
-        Vector3 p2 = { center.x + cosf(a2) * radius, 0.02f, center.z + sinf(a2) * radius };
+        Vector3 p1 = { center.x + cosf(a1) * radius, y, center.z + sinf(a1) * radius };
+        Vector3 p2 = { center.x + cosf(a2) * radius, y, center.z + sinf(a2) * radius };
         DrawLine3D(p1, p2, color);
     }
 }
@@ -199,9 +234,9 @@ static void DrawSkybox(Camera3D camera)
 
 // --- Blob Shadow ---
 
-static void DrawBlobShadow(Vector3 center, float radius)
+static void DrawBlobShadow(Vector3 center, float radius, float elevationY)
 {
-    float y = 0.01f;
+    float y = elevationY + 0.01f;
     Color col = (Color){ 0, 0, 0, 80 };
     rlBegin(RL_TRIANGLES);
     for (int i = 0; i < BLOB_SHADOW_SEGMENTS; i++) {
@@ -670,7 +705,7 @@ int main(void)
 
         // --- Mouse ground position (needed for drawing even when paused) ---
         Vector3 mouseGround = {0};
-        bool mouseOnGround = GetMouseGroundPos(camera, &mouseGround);
+        bool mouseOnGround = GetMouseGroundPos(camera, &map, &mouseGround);
         GridPos mouseGrid = {-1, -1};
         bool canPlace = false;
 
@@ -721,7 +756,7 @@ int main(void)
                         gs.playerGold[lpi] -= cost;
                         gs.gold = gs.playerGold[0];
                         TowerPlace(towers, MAX_TOWERS, (TowerType)selectedTowerType, mouseGrid,
-                                  (uint8_t)lpi, &gs);
+                                  (uint8_t)lpi, &gs, &map);
                         map.tiles[mouseGrid.z][mouseGrid.x] = TILE_TOWER;
                     }
                 }
@@ -765,7 +800,7 @@ int main(void)
             gs.phase != PHASE_OVER && gs.phase != PHASE_PAUSED) {
             GameUpdateWave(&gs, enemies, MAX_ENEMIES, &map, dt);
             EnemiesUpdate(enemies, MAX_ENEMIES, &map, &gs, dt);
-            TowersUpdate(towers, MAX_TOWERS, enemies, MAX_ENEMIES, projectiles, MAX_PROJECTILES, &gs, dt);
+            TowersUpdate(towers, MAX_TOWERS, enemies, MAX_ENEMIES, projectiles, MAX_PROJECTILES, &gs, &map, dt);
             ProjectilesUpdate(projectiles, MAX_PROJECTILES, enemies, MAX_ENEMIES, &gs, dt);
         }
 
@@ -798,29 +833,32 @@ int main(void)
                 for (int i = 0; i < MAX_TOWERS; i++) {
                     if (!towers[i].active) continue;
                     Vector3 tp = towers[i].worldPos;
-                    DrawBlobShadow((Vector3){ tp.x, 0.0f, tp.z }, 0.45f);
+                    float tElev = MapGetElevationY(&map, towers[i].gridPos.x, towers[i].gridPos.z);
+                    DrawBlobShadow((Vector3){ tp.x, 0.0f, tp.z }, 0.45f, tElev);
                 }
 
                 // Blob shadows under enemies
                 for (int i = 0; i < MAX_ENEMIES; i++) {
                     if (!enemies[i].active) continue;
                     Vector3 ep = enemies[i].worldPos;
-                    DrawBlobShadow((Vector3){ ep.x, 0.0f, ep.z }, enemies[i].radius * 1.2f);
+                    GridPos eg = MapWorldToGrid(ep);
+                    float eElev = MapGetElevationY(&map, eg.x, eg.z);
+                    DrawBlobShadow((Vector3){ ep.x, 0.0f, ep.z }, enemies[i].radius * 1.2f, eElev);
                 }
 
                 // Grid hover highlight
                 if (mouseOnGround && selectedTowerType >= 0 &&
                     mouseGrid.x >= 0 && mouseGrid.x < MAP_WIDTH &&
                     mouseGrid.z >= 0 && mouseGrid.z < MAP_HEIGHT) {
-                    Vector3 ghostPos = MapGridToWorld(mouseGrid);
-                    ghostPos.y = 0.35f;
+                    Vector3 ghostPos = MapGridToWorldElevated(&map, mouseGrid);
+                    ghostPos.y += 0.35f;
                     Color ghostCol = canPlace ? (Color){ 0, 255, 0, 100 } : (Color){ 255, 0, 0, 100 };
                     DrawCubeV(ghostPos, (Vector3){ 0.7f, 0.7f, 0.7f }, ghostCol);
 
                     // Range preview
                     if (canPlace) {
                         float range = TOWER_CONFIGS[selectedTowerType][0].range;
-                        Vector3 rangeCenter = MapGridToWorld(mouseGrid);
+                        Vector3 rangeCenter = MapGridToWorldElevated(&map, mouseGrid);
                         DrawRangeCircle(rangeCenter, range, (Color){ 255, 255, 255, 80 });
                     }
                 }
@@ -830,9 +868,10 @@ int main(void)
                 // Range indicator for selected tower
                 if (selectedTowerIdx >= 0 && towers[selectedTowerIdx].active) {
                     const Tower *st = &towers[selectedTowerIdx];
+                    float tElevY = MapGetElevationY(&map, st->gridPos.x, st->gridPos.z);
                     float range = TOWER_CONFIGS[st->type][st->level].range;
                     Vector3 rc = st->worldPos;
-                    rc.y = 0.0f;
+                    rc.y = tElevY;
                     DrawRangeCircle(rc, range, (Color){ 255, 255, 100, 150 });
                 }
 
@@ -917,10 +956,16 @@ int main(void)
             DrawText(TextFormat("Range:  %.1f", cfg->range),    px + 8, py + 48, 14, WHITE);
             DrawText(TextFormat("Rate:   %.1f/s", cfg->fireRate), px + 8, py + 66, 14, WHITE);
 
+            // Elevation range bonus
+            float tElevY = MapGetElevationY(&map, st->gridPos.x, st->gridPos.z);
+            if (tElevY > 0.0f)
+                DrawText(TextFormat("Elev:   +%.1f rng", tElevY), px + 8, py + 84, 14, (Color){100,200,255,255});
+
+            int extraY = (tElevY > 0.0f) ? 102 : 84;
             if (cfg->aoeRadius > 0.0f)
-                DrawText(TextFormat("AoE:    %.1f", cfg->aoeRadius), px + 8, py + 84, 14, ORANGE);
+                DrawText(TextFormat("AoE:    %.1f", cfg->aoeRadius), px + 8, py + extraY, 14, ORANGE);
             if (cfg->slowFactor < 1.0f)
-                DrawText(TextFormat("Slow:   %.0f%%", (1.0f - cfg->slowFactor) * 100.0f), px + 8, py + 84, 14, PURPLE);
+                DrawText(TextFormat("Slow:   %.0f%%", (1.0f - cfg->slowFactor) * 100.0f), px + 8, py + extraY, 14, PURPLE);
 
             // Upgrade button
             if (st->level < TOWER_MAX_LEVEL - 1) {

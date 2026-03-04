@@ -138,9 +138,10 @@ extern const TowerConfig TOWER_CONFIGS[TOWER_TYPE_COUNT][TOWER_MAX_LEVEL];
 extern const char *TOWER_NAMES[TOWER_TYPE_COUNT];
 
 void TowerPlace(Tower towers[], int maxTowers, TowerType type, GridPos pos,
-                uint8_t ownerPlayer, GameState *gs);
+                uint8_t ownerPlayer, GameState *gs, const Map *map);
 void TowersUpdate(Tower towers[], int maxTowers, Enemy enemies[], int maxEnemies,
-                  Projectile projectiles[], int maxProjectiles, GameState *gs, float dt);
+                  Projectile projectiles[], int maxProjectiles, GameState *gs,
+                  const Map *map, float dt);
 void TowersDraw(const Tower towers[], int maxTowers, int playerCount);
 Tower *TowerFindByID(Tower towers[], int maxTowers, EntityID id);
 
