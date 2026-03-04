@@ -273,9 +273,9 @@ static void OnNetChatReceived(uint8_t playerIndex, const char *username, const c
 
 int main(void)
 {
+    SetConfigFlags(FLAG_VSYNC_HINT | FLAG_WINDOW_RESIZABLE);
     InitWindow(1280, 720, "Formal Defense");
     SetExitKey(0);
-    SetTargetFPS(60);
 
     // --- PS1 Shader & Render Target ---
     Shader ps1Shader = LoadShader("shaders/ps1.vs", "shaders/ps1.fs");
@@ -377,6 +377,8 @@ int main(void)
         int screenW = GetScreenWidth();
         int screenH = GetScreenHeight();
         Vector2 mouse = GetMousePosition();
+
+        if (IsKeyPressed(KEY_F11)) ToggleBorderlessWindowed();
 
         // Recreate render target on window resize
         if (screenW != cachedScreenW || screenH != cachedScreenH) {
