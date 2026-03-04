@@ -136,6 +136,7 @@ void SettingsOpen(SettingsState *st, const Settings *current)
     st->open = true;
     st->activeTab = SETTINGS_TAB_GRAPHICS;
     st->pending = *current;
+    st->_openedThisFrame = true;
 }
 
 void SettingsClose(SettingsState *st)
@@ -272,7 +273,10 @@ void SettingsDraw(const SettingsState *st, int screenW, int screenH)
     SettingsState *mut = (SettingsState *)st;
     Settings *p = &mut->pending;
     Vector2 mouse = GetMousePosition();
-    bool click = true; // Always allow clicks in settings overlay
+
+    // Suppress clicks on the frame the overlay was opened (prevents pass-through)
+    bool click = !mut->_openedThisFrame;
+    mut->_openedThisFrame = false;
 
     // Dark backdrop
     DrawRectangle(0, 0, screenW, screenH, (Color){ 0, 0, 0, 160 });
@@ -310,7 +314,7 @@ void SettingsDraw(const SettingsState *st, int screenW, int screenH)
         int tw = MeasureText(tabNames[i], 16);
         DrawText(tabNames[i], tx + (tabW - tw) / 2, tabY + 7, 16, active ? WHITE : LIGHTGRAY);
 
-        if (hover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+        if (click && hover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
             mut->activeTab = (SettingsTab)i;
     }
 
@@ -416,7 +420,7 @@ void SettingsDraw(const SettingsState *st, int screenW, int screenH)
     int applyTextW = MeasureText(applyText, 20);
     DrawText(applyText, applyX + (btnW - applyTextW) / 2, btnY + 8, 20, WHITE);
 
-    if (applyHover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+    if (click && applyHover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
         mut->open = false;
         mut->_result = 1; // Applied
     }
@@ -432,7 +436,7 @@ void SettingsDraw(const SettingsState *st, int screenW, int screenH)
     int backTextW = MeasureText(backText, 20);
     DrawText(backText, backX + (btnW - backTextW) / 2, btnY + 8, 20, WHITE);
 
-    if (backHover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+    if (click && backHover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
         mut->open = false;
         mut->_result = -1; // Cancelled
     }

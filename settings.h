@@ -59,6 +59,7 @@ typedef struct {
     SettingsTab activeTab;
     Settings pending; // Working copy edited by UI
     int _result;      // Internal: 0=none, 1=apply clicked, -1=back clicked
+    bool _openedThisFrame; // Suppress clicks on the frame settings was opened
 } SettingsState;
 
 // --- Functions ---
