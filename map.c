@@ -398,21 +398,21 @@ void MapDraw(const Map *map)
             Color c2 = PerturbColor(base, x, z, 2);
             Color c3 = PerturbColor(base, x, z, 3);
 
-            // Triangle 1: (x0,z0), (x1,z0), (x1,z1)
+            // Triangle 1: (x0,z0), (x1,z1), (x1,z0) — CCW from above
             rlColor4ub(c0.r, c0.g, c0.b, 255);
             rlVertex3f(x0, y00, z0);
+            rlColor4ub(c3.r, c3.g, c3.b, 255);
+            rlVertex3f(x1, y11, z1);
             rlColor4ub(c1.r, c1.g, c1.b, 255);
             rlVertex3f(x1, y10, z0);
-            rlColor4ub(c3.r, c3.g, c3.b, 255);
-            rlVertex3f(x1, y11, z1);
 
-            // Triangle 2: (x0,z0), (x1,z1), (x0,z1)
+            // Triangle 2: (x0,z0), (x0,z1), (x1,z1) — CCW from above
             rlColor4ub(c0.r, c0.g, c0.b, 255);
             rlVertex3f(x0, y00, z0);
-            rlColor4ub(c3.r, c3.g, c3.b, 255);
-            rlVertex3f(x1, y11, z1);
             rlColor4ub(c2.r, c2.g, c2.b, 255);
             rlVertex3f(x0, y01, z1);
+            rlColor4ub(c3.r, c3.g, c3.b, 255);
+            rlVertex3f(x1, y11, z1);
         }
     }
     rlEnd();
@@ -440,15 +440,15 @@ void MapDraw(const Map *map)
                 neighborElev = 0.0f;
 
             if (elev > neighborElev) {
-                // Vertical wall on right edge
+                // Vertical wall on right edge — CCW from +X
                 rlColor4ub(cliff.r, cliff.g, cliff.b, 255);
                 rlVertex3f(x1, elev, z0);
-                rlVertex3f(x1, neighborElev, z0);
                 rlVertex3f(x1, neighborElev, z1);
+                rlVertex3f(x1, neighborElev, z0);
 
                 rlVertex3f(x1, elev, z0);
-                rlVertex3f(x1, neighborElev, z1);
                 rlVertex3f(x1, elev, z1);
+                rlVertex3f(x1, neighborElev, z1);
             } else if (elev < neighborElev) {
                 // Neighbor is higher — draw their cliff facing us
                 Color nBase = (x + 1 < MAP_WIDTH) ? TileBaseColor(map->tiles[z][x + 1]) : base;
@@ -485,36 +485,36 @@ void MapDraw(const Map *map)
                                  (unsigned char)(nBase.b * 0.5f), 255 };
                 rlColor4ub(nCliff.r, nCliff.g, nCliff.b, 255);
                 rlVertex3f(x0, neighborElev, z1);
-                rlVertex3f(x0, elev, z1);
                 rlVertex3f(x1, elev, z1);
+                rlVertex3f(x0, elev, z1);
 
                 rlVertex3f(x0, neighborElev, z1);
-                rlVertex3f(x1, elev, z1);
                 rlVertex3f(x1, neighborElev, z1);
+                rlVertex3f(x1, elev, z1);
             }
 
             // Check left neighbor (x-1) — only needed for edge at x=0
             if (x == 0 && elev > 0.0f) {
                 rlColor4ub(cliff.r, cliff.g, cliff.b, 255);
                 rlVertex3f(x0, elev, z1);
-                rlVertex3f(x0, 0.0f, z1);
                 rlVertex3f(x0, 0.0f, z0);
+                rlVertex3f(x0, 0.0f, z1);
 
                 rlVertex3f(x0, elev, z1);
-                rlVertex3f(x0, 0.0f, z0);
                 rlVertex3f(x0, elev, z0);
+                rlVertex3f(x0, 0.0f, z0);
             }
 
             // Check top neighbor (z=0) — only needed for edge at z=0
             if (z == 0 && elev > 0.0f) {
                 rlColor4ub(cliff.r, cliff.g, cliff.b, 255);
                 rlVertex3f(x0, elev, z0);
-                rlVertex3f(x0, 0.0f, z0);
                 rlVertex3f(x1, 0.0f, z0);
+                rlVertex3f(x0, 0.0f, z0);
 
                 rlVertex3f(x0, elev, z0);
-                rlVertex3f(x1, 0.0f, z0);
                 rlVertex3f(x1, elev, z0);
+                rlVertex3f(x1, 0.0f, z0);
             }
         }
     }
