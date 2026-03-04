@@ -355,6 +355,7 @@ static void ClientHandlePacket(NetContext *ctx, const uint8_t *data, size_t size
         ctx->playerCount = start->playerCount;
         strncpy(ctx->selectedMap, start->mapName, MAX_MAP_NAME - 1);
         ctx->selectedMap[MAX_MAP_NAME - 1] = '\0';
+        ctx->selectedDifficulty = start->difficulty;
         break;
     }
     case MSG_MAP_DATA: {
@@ -641,6 +642,7 @@ void NetSendGameStart(NetContext *ctx)
     msg.playerCount = (uint8_t)ctx->playerCount;
     memset(msg.mapName, 0, sizeof(msg.mapName));
     strncpy(msg.mapName, ctx->selectedMap, MAX_MAP_NAME - 1);
+    msg.difficulty = ctx->selectedDifficulty;
     NetBroadcastReliable(ctx, &msg, sizeof(msg));
     ctx->inGame = true;
 }

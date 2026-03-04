@@ -14,7 +14,7 @@ typedef struct _ENetPeer ENetPeer;
 #define NET_PORT 7777
 #define NET_DISCOVERY_PORT 7778
 #define NET_MAX_PLAYERS 4
-#define NET_PROTOCOL_VERSION 1
+#define NET_PROTOCOL_VERSION 2
 #define NET_SNAPSHOT_RATE (1.0f / 20.0f)
 #define NET_MAX_USERNAME 16
 #define NET_MAX_CHAT_MSG 128
@@ -117,6 +117,7 @@ typedef struct {
     PacketHeader header;
     uint8_t playerCount;
     char mapName[MAX_MAP_NAME];
+    uint8_t difficulty;
 } GameStartMsg;
 
 typedef struct {
@@ -250,6 +251,7 @@ typedef struct {
     // Map selection (host)
     char selectedMap[MAX_MAP_NAME];
     char selectedMapPath[256];
+    uint8_t selectedDifficulty;
 
     // Discovery (UDP)
     int discoverySocket;

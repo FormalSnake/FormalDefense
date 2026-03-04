@@ -6,7 +6,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define MAX_ENEMIES 128
+#define MAX_ENEMIES 256
 #define MAX_TOWERS 64
 #define MAX_PROJECTILES 256
 #define MAX_PLAYERS 4

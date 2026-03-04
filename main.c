@@ -21,10 +21,11 @@
 
 // --- Scene ---
 
-typedef enum { SCENE_MENU, SCENE_MAP_SELECT, SCENE_LOBBY, SCENE_GAME } Scene;
+typedef enum { SCENE_MENU, SCENE_MAP_SELECT, SCENE_DIFFICULTY_SELECT, SCENE_LOBBY, SCENE_GAME } Scene;
 
 // Track whether map select was opened for multiplayer host flow
 static bool mapSelectForMultiplayer = false;
+static Difficulty selectedDifficulty = DIFFICULTY_NORMAL;
 
 // --- Camera Controller ---
 
@@ -408,7 +409,7 @@ int main(void)
     MapBuildMesh(&gameMapMesh, &map, ps1Shader);
 
     GameState gs;
-    GameStateInit(&gs);
+    GameStateInit(&gs, DIFFICULTY_NORMAL);
 
     Enemy enemies[MAX_ENEMIES];
     memset(enemies, 0, sizeof(enemies));
@@ -624,23 +625,114 @@ int main(void)
             // Handle start click
             if (canStart && startHover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
                 if (mapSelectForMultiplayer) {
-                    // Host flow: load map, set up net context, go to lobby
+                    // Host flow: load map, set up net context, go to difficulty select
                     if (lobbyState.usernameLen > 0) {
                         NetInit();
                         if (NetHostCreate(&netCtx, lobbyState.username)) {
                             strncpy(netCtx.selectedMap, mapRegistry.names[selectedMapIdx], MAX_MAP_NAME - 1);
                             strncpy(netCtx.selectedMapPath, mapRegistry.paths[selectedMapIdx], 255);
-                            NetDiscoveryStart(&netCtx);
-                            lobbyState.phase = LOBBY_HOST_WAIT;
-                            currentScene = SCENE_LOBBY;
+                            currentScene = SCENE_DIFFICULTY_SELECT;
                         }
                     }
                 } else {
-                    // Single-player: load map and start game
+                    // Single-player: load map, go to difficulty select
                     if (!MapLoad(&map, mapRegistry.paths[selectedMapIdx]))
                         MapInit(&map);
                     MapBuildMesh(&gameMapMesh, &map, ps1Shader);
-                    GameStateInit(&gs);
+                    currentScene = SCENE_DIFFICULTY_SELECT;
+                }
+            }
+
+            // Handle back
+            if ((backHover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) || IsKeyPressed(KEY_ESCAPE)) {
+                if (mapSelectForMultiplayer) {
+                    // If we already created the host, tear it down
+                    if (netCtx.mode == NET_MODE_HOST) {
+                        NetContextDestroy(&netCtx);
+                        NetShutdown();
+                        NetContextInit(&netCtx);
+                    }
+                    currentScene = SCENE_LOBBY;
+                } else {
+                    currentScene = SCENE_MENU;
+                }
+            }
+
+            EndDrawing();
+        } break;
+
+        case SCENE_DIFFICULTY_SELECT: {
+            BeginDrawing();
+            ClearBackground((Color){ 20, 22, 28, 255 });
+
+            const char *dsTitle = "Select Difficulty";
+            int dsTitleW = MeasureText(dsTitle, 36);
+            DrawText(dsTitle, (screenW - dsTitleW) / 2, 50, 36, WHITE);
+
+            const char *descriptions[DIFFICULTY_COUNT] = {
+                "Fewer, weaker enemies. More gold and lives.",
+                "The standard experience.",
+                "Tougher enemies, less gold, faster spawns.",
+                "Extreme challenge. Only for the brave.",
+            };
+
+            for (int i = 0; i < DIFFICULTY_COUNT; i++) {
+                int dy = 120 + i * 65;
+                bool selected = ((int)selectedDifficulty == i);
+                bool hover = CheckCollisionPointRec(mouse,
+                    (Rectangle){ (float)(screenW / 2 - 180), (float)dy, 360.0f, 55.0f });
+
+                Color bg = selected ? (Color){ 50, 80, 110, 255 } :
+                           hover    ? (Color){ 40, 55, 75, 255 }  :
+                                      (Color){ 30, 35, 45, 200 };
+                DrawRectangle(screenW / 2 - 180, dy, 360, 55, bg);
+                DrawRectangleLines(screenW / 2 - 180, dy, 360, 55, (Color){ 80, 100, 120, 200 });
+                DrawText(DIFFICULTY_CONFIGS[i].name, screenW / 2 - 168, dy + 6, 24,
+                         selected ? DIFFICULTY_CONFIGS[i].color : WHITE);
+                DrawText(descriptions[i], screenW / 2 - 168, dy + 32, 14, LIGHTGRAY);
+
+                if (hover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+                    selectedDifficulty = (Difficulty)i;
+            }
+
+            int dsBtnY = 120 + DIFFICULTY_COUNT * 65 + 20;
+            int dsBtnW = 200, dsBtnH = 45;
+            int dsBtnX = (screenW - dsBtnW) / 2;
+
+            // Start button
+            Rectangle dsStartBtn = { (float)dsBtnX, (float)dsBtnY, (float)dsBtnW, (float)dsBtnH };
+            bool dsStartHover = CheckCollisionPointRec(mouse, dsStartBtn);
+            Color dsStartBg = dsStartHover ? (Color){ 60, 120, 60, 255 } : (Color){ 40, 80, 40, 255 };
+            DrawRectangleRec(dsStartBtn, dsStartBg);
+            DrawRectangleLinesEx(dsStartBtn, 2, (Color){ 100, 200, 100, 200 });
+            const char *dsStartText = "Start";
+            int dsStartTextW = MeasureText(dsStartText, 24);
+            DrawText(dsStartText, dsBtnX + (dsBtnW - dsStartTextW) / 2, dsBtnY + 11, 24, WHITE);
+
+            // Back button
+            int dsBbY = dsBtnY + dsBtnH + 12;
+            Rectangle dsBackBtn = { (float)dsBtnX, (float)dsBbY, (float)dsBtnW, 40.0f };
+            bool dsBackHover = CheckCollisionPointRec(mouse, dsBackBtn);
+            Color dsBackBg = dsBackHover ? (Color){ 80, 50, 50, 255 } : (Color){ 55, 35, 35, 255 };
+            DrawRectangleRec(dsBackBtn, dsBackBg);
+            DrawRectangleLinesEx(dsBackBtn, 2, (Color){ 180, 100, 100, 200 });
+            const char *dsBackText = "Back";
+            int dsBackTextW = MeasureText(dsBackText, 22);
+            DrawText(dsBackText, dsBtnX + (dsBtnW - dsBackTextW) / 2, dsBbY + 9, 22, WHITE);
+
+            EndDrawing();
+
+            // Start click
+            if (dsStartHover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+                if (mapSelectForMultiplayer) {
+                    // Host: go to lobby with discovery
+                    netCtx.selectedDifficulty = (uint8_t)selectedDifficulty;
+                    NetDiscoveryStart(&netCtx);
+                    lobbyState.phase = LOBBY_HOST_WAIT;
+                    currentScene = SCENE_LOBBY;
+                } else {
+                    // Single-player: init game and start
+                    GameStateInit(&gs, selectedDifficulty);
                     memset(enemies, 0, sizeof(enemies));
                     memset(towers, 0, sizeof(towers));
                     memset(projectiles, 0, sizeof(projectiles));
@@ -652,12 +744,18 @@ int main(void)
                 }
             }
 
-            // Handle back
-            if ((backHover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) || IsKeyPressed(KEY_ESCAPE)) {
-                currentScene = mapSelectForMultiplayer ? SCENE_LOBBY : SCENE_MENU;
+            // Back click
+            if ((dsBackHover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) || IsKeyPressed(KEY_ESCAPE)) {
+                if (mapSelectForMultiplayer) {
+                    // Tear down host and go back to map select
+                    if (netCtx.mode == NET_MODE_HOST) {
+                        NetContextDestroy(&netCtx);
+                        NetShutdown();
+                        NetContextInit(&netCtx);
+                    }
+                }
+                currentScene = SCENE_MAP_SELECT;
             }
-
-            EndDrawing();
         } break;
 
         case SCENE_LOBBY: {
@@ -691,14 +789,14 @@ int main(void)
                         MapInit(&map);
                     // Send map data to clients
                     NetSendMapData(&netCtx, &map);
-                    GameStateInitMultiplayer(&gs, netCtx.playerCount);
+                    GameStateInitMultiplayer(&gs, netCtx.playerCount, (Difficulty)netCtx.selectedDifficulty);
                 } else {
                     // Client: load map by name (may have been saved by MSG_MAP_DATA handler)
                     char localPath[256];
                     snprintf(localPath, sizeof(localPath), "maps/%s.fdmap", netCtx.selectedMap);
                     if (!MapLoad(&map, localPath))
                         MapInit(&map);
-                    GameStateInitMultiplayer(&gs, netCtx.playerCount);
+                    GameStateInitMultiplayer(&gs, netCtx.playerCount, (Difficulty)netCtx.selectedDifficulty);
                 }
                 MapBuildMesh(&gameMapMesh, &map, ps1Shader);
                 memset(enemies, 0, sizeof(enemies));
@@ -981,6 +1079,10 @@ int main(void)
         DrawText(TextFormat("Lives: %d", gs.lives), 170, 7, 20,
                  gs.lives > 5 ? RED : MAROON);
         DrawText(TextFormat("Wave: %d/%d", gs.currentWave + 1, MAX_WAVES), 330, 7, 20, WHITE);
+        {
+            const DifficultyConfig *hdc = &DIFFICULTY_CONFIGS[gs.difficulty];
+            DrawText(hdc->name, 510, 7, 20, hdc->color);
+        }
         DrawFPS(screenW - 90, 7);
 
         // --- Wave countdown ---
@@ -1258,7 +1360,7 @@ int main(void)
             }
             if (!reloaded) MapInit(&map);
             MapBuildMesh(&gameMapMesh, &map, ps1Shader);
-            GameStateInit(&gs);
+            GameStateInit(&gs, selectedDifficulty);
             memset(enemies, 0, sizeof(enemies));
             memset(towers, 0, sizeof(towers));
             memset(projectiles, 0, sizeof(projectiles));

@@ -1,6 +1,7 @@
 #ifndef GAME_H
 #define GAME_H
 
+#include "raylib.h"
 #include "map.h"
 #include <stdbool.h>
 #include <stdint.h>
@@ -26,7 +27,29 @@ typedef struct {
     int bonusGold;
 } WaveConfig;
 
-#define MAX_WAVES 10
+#define MAX_WAVES 20
+
+typedef enum {
+    DIFFICULTY_EASY,
+    DIFFICULTY_NORMAL,
+    DIFFICULTY_HARD,
+    DIFFICULTY_NIGHTMARE,
+    DIFFICULTY_COUNT,
+} Difficulty;
+
+typedef struct {
+    const char *name;
+    Color color;
+    float hpMultiplier;
+    float countMultiplier;
+    float speedMultiplier;
+    float goldMultiplier;
+    float spawnIntervalScale;
+    int startingGold;
+    int startingLives;
+} DifficultyConfig;
+
+extern const DifficultyConfig DIFFICULTY_CONFIGS[DIFFICULTY_COUNT];
 
 struct GameState {
     int gold;              // Legacy single-player gold (alias for playerGold[0])
@@ -41,6 +64,10 @@ struct GameState {
     int totalToSpawn;
     bool waveActive;
 
+    // Difficulty
+    Difficulty difficulty;
+    float speedMultiplier;
+
     // Multiplayer fields
     int playerGold[4];
     int playerCount;
@@ -52,8 +79,8 @@ struct GameState {
 
 extern const WaveConfig WAVE_CONFIGS[MAX_WAVES];
 
-void GameStateInit(struct GameState *gs);
-void GameStateInitMultiplayer(struct GameState *gs, int playerCount);
+void GameStateInit(struct GameState *gs, Difficulty difficulty);
+void GameStateInitMultiplayer(struct GameState *gs, int playerCount, Difficulty difficulty);
 
 // Forward declare Enemy (defined in entity.h)
 typedef struct Enemy_ Enemy_;
