@@ -234,6 +234,7 @@ int main(void)
 
     int selectedTowerType = -1;  // -1 = no selection for placement
     int selectedTowerIdx = -1;   // -1 = no tower selected for info
+    GamePhase phaseBeforePause = PHASE_PLAYING;
 
     while (!WindowShouldClose())
     {
@@ -295,7 +296,28 @@ int main(void)
             int playTextW = MeasureText(playText, 30);
             DrawText(playText, pbX + (pbW - playTextW) / 2, pbY + 10, 30, WHITE);
 
+            // Quit button
+            int qbY = pbY + pbH + 15;
+            Rectangle quitBtn = { (float)pbX, (float)qbY, (float)pbW, (float)pbH };
+            bool quitHover = CheckCollisionPointRec(mouse, quitBtn);
+            Color quitBg = quitHover ? (Color){ 140, 50, 50, 255 } : (Color){ 100, 35, 35, 255 };
+            DrawRectangleRec(quitBtn, quitBg);
+            DrawRectangleLinesEx(quitBtn, 2, (Color){ 200, 100, 100, 200 });
+            const char *quitText = "Quit";
+            int quitTextW = MeasureText(quitText, 30);
+            DrawText(quitText, pbX + (pbW - quitTextW) / 2, qbY + 10, 30, WHITE);
+
+            // Copyright & credit
+            DrawText("Made by FormalSnake", 10, screenH - 40, 16, LIGHTGRAY);
+            DrawText("(c) 2026 FormalSnake", 10, screenH - 22, 14, GRAY);
+
             EndDrawing();
+
+            // Quit button click
+            if (quitHover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+                CloseWindow();
+                return 0;
+            }
 
             // Play button click
             if (playHover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
@@ -325,6 +347,37 @@ int main(void)
                 mouseInUI = true;
         }
 
+        // --- ESC: deselect, pause, or resume ---
+        if (IsKeyPressed(KEY_ESCAPE)) {
+            if (gs.phase == PHASE_PAUSED) {
+                gs.phase = phaseBeforePause;
+            } else if (selectedTowerType >= 0 || selectedTowerIdx >= 0) {
+                selectedTowerType = -1;
+                selectedTowerIdx = -1;
+            } else if (gs.phase != PHASE_OVER) {
+                phaseBeforePause = gs.phase;
+                gs.phase = PHASE_PAUSED;
+            }
+        }
+        if (IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) {
+            selectedTowerType = -1;
+            selectedTowerIdx = -1;
+        }
+
+        // --- Mouse ground position (needed for drawing even when paused) ---
+        Vector3 mouseGround = {0};
+        bool mouseOnGround = GetMouseGroundPos(camera, &mouseGround);
+        GridPos mouseGrid = {-1, -1};
+        bool canPlace = false;
+
+        if (mouseOnGround) {
+            mouseGrid = MapWorldToGrid(mouseGround);
+            if (selectedTowerType >= 0)
+                canPlace = MapCanPlaceTower(&map, mouseGrid);
+        }
+
+        if (gs.phase != PHASE_PAUSED) {
+
         // --- Camera (only when not in UI) ---
         if (!mouseInUI || IsKeyDown(KEY_W) || IsKeyDown(KEY_S) || IsKeyDown(KEY_A) || IsKeyDown(KEY_D))
             CameraControllerUpdate(&camCtrl, &camera, dt);
@@ -350,22 +403,6 @@ int main(void)
         if (IsKeyPressed(KEY_TWO))   { selectedTowerType = TOWER_MACHINEGUN; selectedTowerIdx = -1; }
         if (IsKeyPressed(KEY_THREE)) { selectedTowerType = TOWER_SNIPER;     selectedTowerIdx = -1; }
         if (IsKeyPressed(KEY_FOUR))  { selectedTowerType = TOWER_SLOW;       selectedTowerIdx = -1; }
-        if (IsKeyPressed(KEY_ESCAPE) || IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) {
-            selectedTowerType = -1;
-            selectedTowerIdx = -1;
-        }
-
-        // --- Mouse ground position ---
-        Vector3 mouseGround = {0};
-        bool mouseOnGround = GetMouseGroundPos(camera, &mouseGround);
-        GridPos mouseGrid = {-1, -1};
-        bool canPlace = false;
-
-        if (mouseOnGround) {
-            mouseGrid = MapWorldToGrid(mouseGround);
-            if (selectedTowerType >= 0)
-                canPlace = MapCanPlaceTower(&map, mouseGrid);
-        }
 
         // --- Left click in 3D area ---
         if (!mouseInUI && IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && gs.phase != PHASE_OVER) {
@@ -390,11 +427,13 @@ int main(void)
             }
         }
 
+        } // end PHASE_PAUSED guard
+
         // --- Upgrade selected tower ---
         // (handled in UI draw section via button click check)
 
         // --- Update game systems ---
-        if (gs.phase != PHASE_OVER) {
+        if (gs.phase != PHASE_OVER && gs.phase != PHASE_PAUSED) {
             GameUpdateWave(&gs, enemies, MAX_ENEMIES, &map, dt);
             EnemiesUpdate(enemies, MAX_ENEMIES, &map, &gs, dt);
             TowersUpdate(towers, MAX_TOWERS, enemies, MAX_ENEMIES, projectiles, MAX_PROJECTILES, dt);
@@ -547,6 +586,51 @@ int main(void)
                      TOWER_NAMES[selectedTowerType]), 10, screenH - BOTTOM_BAR_HEIGHT - 24, 16, YELLOW);
         }
 
+        // --- Pause Menu ---
+        if (gs.phase == PHASE_PAUSED) {
+            DrawRectangle(0, 0, screenW, screenH, (Color){ 0, 0, 0, 150 });
+
+            const char *pauseTitle = "PAUSED";
+            int pauseTitleW = MeasureText(pauseTitle, 60);
+            DrawText(pauseTitle, (screenW - pauseTitleW) / 2, screenH / 2 - 100, 60, WHITE);
+
+            int pBtnW = 200, pBtnH = 45;
+            int pBtnX = (screenW - pBtnW) / 2;
+
+            // Resume button
+            int resumeY = screenH / 2 - 20;
+            Rectangle resumeBtn = { (float)pBtnX, (float)resumeY, (float)pBtnW, (float)pBtnH };
+            bool resumeHover = CheckCollisionPointRec(mouse, resumeBtn);
+            Color resumeBg = resumeHover ? (Color){ 60, 120, 60, 255 } : (Color){ 40, 80, 40, 255 };
+            DrawRectangleRec(resumeBtn, resumeBg);
+            DrawRectangleLinesEx(resumeBtn, 2, (Color){ 100, 200, 100, 200 });
+            const char *resumeText = "Resume";
+            int resumeTextW = MeasureText(resumeText, 24);
+            DrawText(resumeText, pBtnX + (pBtnW - resumeTextW) / 2, resumeY + 11, 24, WHITE);
+
+            // Main Menu button
+            int pmMenuY = resumeY + pBtnH + 12;
+            Rectangle pmMenuBtn = { (float)pBtnX, (float)pmMenuY, (float)pBtnW, (float)pBtnH };
+            bool pmMenuHover = CheckCollisionPointRec(mouse, pmMenuBtn);
+            Color pmMenuBg = pmMenuHover ? (Color){ 80, 80, 100, 255 } : (Color){ 50, 50, 65, 255 };
+            DrawRectangleRec(pmMenuBtn, pmMenuBg);
+            DrawRectangleLinesEx(pmMenuBtn, 2, (Color){ 120, 120, 160, 200 });
+            const char *pmMenuText = "Main Menu";
+            int pmMenuTextW = MeasureText(pmMenuText, 24);
+            DrawText(pmMenuText, pBtnX + (pBtnW - pmMenuTextW) / 2, pmMenuY + 11, 24, WHITE);
+
+            // Quit button
+            int pQuitY = pmMenuY + pBtnH + 12;
+            Rectangle pQuitBtn = { (float)pBtnX, (float)pQuitY, (float)pBtnW, (float)pBtnH };
+            bool pQuitHover = CheckCollisionPointRec(mouse, pQuitBtn);
+            Color pQuitBg = pQuitHover ? (Color){ 140, 50, 50, 255 } : (Color){ 100, 35, 35, 255 };
+            DrawRectangleRec(pQuitBtn, pQuitBg);
+            DrawRectangleLinesEx(pQuitBtn, 2, (Color){ 200, 100, 100, 200 });
+            const char *pQuitText = "Quit";
+            int pQuitTextW = MeasureText(pQuitText, 24);
+            DrawText(pQuitText, pBtnX + (pBtnW - pQuitTextW) / 2, pQuitY + 11, 24, WHITE);
+        }
+
         // --- Game Over Screen ---
         if (gs.phase == PHASE_OVER) {
             DrawRectangle(0, 0, screenW, screenH, (Color){ 0, 0, 0, 150 });
@@ -581,6 +665,32 @@ int main(void)
         }
 
         EndDrawing();
+
+        // --- Pause menu button clicks ---
+        if (gs.phase == PHASE_PAUSED) {
+            if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+                int pBtnW = 200, pBtnH = 45;
+                int pBtnX = (screenW - pBtnW) / 2;
+                int resumeY = screenH / 2 - 20;
+                int pmMenuY = resumeY + pBtnH + 12;
+                int pQuitY = pmMenuY + pBtnH + 12;
+
+                Rectangle resumeBtn = { (float)pBtnX, (float)resumeY, (float)pBtnW, (float)pBtnH };
+                Rectangle pmMenuBtn = { (float)pBtnX, (float)pmMenuY, (float)pBtnW, (float)pBtnH };
+                Rectangle pQuitBtn = { (float)pBtnX, (float)pQuitY, (float)pBtnW, (float)pBtnH };
+
+                if (CheckCollisionPointRec(mouse, resumeBtn)) {
+                    gs.phase = phaseBeforePause;
+                } else if (CheckCollisionPointRec(mouse, pmMenuBtn)) {
+                    MapInit(&menuMap);
+                    menuCamCtrl.yaw = 0.0f;
+                    currentScene = SCENE_MENU;
+                } else if (CheckCollisionPointRec(mouse, pQuitBtn)) {
+                    CloseWindow();
+                    return 0;
+                }
+            }
+        }
 
         // --- Restart ---
         if (gs.phase == PHASE_OVER && IsKeyPressed(KEY_R)) {
