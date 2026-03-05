@@ -26,11 +26,19 @@ typedef enum {
     SHOP_ITEM_COUNT, // 16 items (0-15)
 } ShopItemID;
 
+typedef enum {
+    SHOP_CAT_STAT_BOOST,
+    SHOP_CAT_TOWER_UNLOCK,
+    SHOP_CAT_ABILITY,
+    SHOP_CAT_COUNT,
+} ShopCategory;
+
 typedef struct {
     const char *name;
     const char *description;
     int cost;
     int prereq; // -1 = none, otherwise ShopItemID
+    ShopCategory category;
 } ShopItemConfig;
 
 extern const ShopItemConfig SHOP_ITEMS[SHOP_ITEM_COUNT];
@@ -135,6 +143,34 @@ typedef struct {
     bool active;
     int endlessWave;
 } EndlessState;
+
+// --- Modifier Deltas (data-driven perk/shop effects) ---
+
+typedef struct {
+    float damageMultiplier, rangeMultiplier, fireRateMultiplier;
+    float towerCostMultiplier, upgradeCostMultiplier;
+    float goldPerKillMultiplier, waveBonusMultiplier, slowEffectMultiplier;
+    float tankDamageMultiplier, fastDamageMultiplier, greedSpeedMultiplier;
+    int bonusStartingGold, bonusStartingLives;
+    float aoeBonus;
+    bool sniperPierce, secondWind, overcharge;
+} ModifierDeltas;
+
+#define MODIFIER_DELTAS_DEFAULT { \
+    1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, \
+    0, 0, 0.0f, false, false, false }
+
+void RunModifiersApplyDeltas(struct RunModifiers *mods, const ModifierDeltas *d);
+
+extern const ModifierDeltas PERK_EFFECTS[PERK_COUNT];
+
+typedef struct {
+    ModifierDeltas modifiers;
+    int towerUnlockType;   // -1 = none
+    int abilityUnlockID;   // -1 = none
+} ShopItemEffect;
+
+extern const ShopItemEffect SHOP_EFFECTS[SHOP_ITEM_COUNT];
 
 // --- Functions ---
 

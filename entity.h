@@ -119,6 +119,14 @@ typedef enum {
 
 #define TOWER_MAX_LEVEL 3
 
+typedef enum {
+    TOWER_ATTACK_PROJECTILE,  // Cannon, MG, Sniper
+    TOWER_ATTACK_BEAM,        // Laser
+    TOWER_ATTACK_CHAIN,       // Tesla
+    TOWER_ATTACK_CONE,        // Flame
+    TOWER_ATTACK_MORTAR,      // Mortar
+} TowerAttackMode;
+
 typedef struct {
     float damage;
     float range;
@@ -129,11 +137,17 @@ typedef struct {
     float aoeRadius;
     int cost;
     Color color;
-    // New tower mechanics
-    bool isBeam;        // Laser: continuous beam
-    int chainCount;     // Tesla: chain lightning count
-    float burnDPS;      // Flame: burn damage per second
-    float burnDuration; // Flame: burn duration
+    TowerAttackMode attackMode;
+    int chainCount;       // Tesla: chain lightning count
+    float chainRange;     // Tesla: chain distance
+    float chainDamageMult;// Tesla: per-chain falloff
+    float coneAngle;      // Flame: half-angle in degrees
+    float burnDPS;        // Flame: burn damage per second
+    float burnDuration;   // Flame: burn duration
+    float arcHeightFactor;// Mortar: arc height ratio
+    float projectileSize; // Visual size
+    float overchargeMult; // First-shot bonus multiplier
+    int pierceCount;      // Sniper: targets to pierce (0 = disabled, set by perk)
 } TowerConfig;
 
 typedef struct {
@@ -153,6 +167,20 @@ typedef struct {
 
 extern const TowerConfig TOWER_CONFIGS[TOWER_TYPE_COUNT][TOWER_MAX_LEVEL];
 extern const char *TOWER_NAMES[TOWER_TYPE_COUNT];
+
+// --- Tower Behavior Registry ---
+
+typedef int  (*TowerTargetFn)(const Tower *, const Enemy[], int, const Map *, RunModifiers *);
+typedef void (*TowerFireFn)(Tower *, const TowerConfig *, Enemy[], int, Projectile[], int, GameState *, const Map *, RunModifiers *, float dt);
+typedef void (*TowerDrawFn)(const Tower *, const TowerConfig *, const Enemy[], int);
+
+typedef struct {
+    TowerTargetFn   target;     // NULL = default TowerFindTarget
+    TowerFireFn     fire;       // Required
+    TowerDrawFn     drawEffect; // NULL = no special effect
+} TowerBehavior;
+
+extern const TowerBehavior TOWER_BEHAVIORS[TOWER_TYPE_COUNT];
 
 void TowerPlace(Tower towers[], int maxTowers, TowerType type, GridPos pos,
                 uint8_t ownerPlayer, GameState *gs, const Map *map);

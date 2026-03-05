@@ -341,7 +341,8 @@ static void ClientHandlePacket(NetContext *ctx, const uint8_t *data, size_t size
         const LobbyStateMsg *lm = (const LobbyStateMsg *)data;
         ctx->playerCount = lm->playerCount;
         for (int i = 0; i < NET_MAX_PLAYERS; i++) {
-            strncpy(ctx->playerNames[i], lm->players[i].username, NET_MAX_USERNAME);
+            strncpy(ctx->playerNames[i], lm->players[i].username, NET_MAX_USERNAME - 1);
+            ctx->playerNames[i][NET_MAX_USERNAME - 1] = '\0';
             ctx->playerConnected[i] = lm->players[i].connected;
         }
         strncpy(ctx->selectedMap, lm->selectedMap, MAX_MAP_NAME - 1);

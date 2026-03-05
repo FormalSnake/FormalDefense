@@ -1,4 +1,5 @@
 #include "lobby.h"
+#include "ui.h"
 #include "raylib.h"
 #include <string.h>
 #include <stdio.h>
@@ -12,23 +13,7 @@ void LobbyStateInit(LobbyState *ls)
     ls->selectedGame = -1;
 }
 
-// --- Text Input Helper ---
-
-static void HandleTextInput(char *buf, int *len, int maxLen)
-{
-    int ch;
-    while ((ch = GetCharPressed()) != 0) {
-        if (*len < maxLen && ch >= 32 && ch < 127) {
-            buf[*len] = (char)ch;
-            (*len)++;
-            buf[*len] = '\0';
-        }
-    }
-    if (IsKeyPressed(KEY_BACKSPACE) && *len > 0) {
-        (*len)--;
-        buf[*len] = '\0';
-    }
-}
+// Text input is now handled via UITextInput from ui.h
 
 // --- Update ---
 
@@ -37,7 +22,8 @@ void LobbyUpdate(LobbyState *ls, NetContext *ctx)
     switch (ls->phase) {
     case LOBBY_CHOOSE:
         if (ls->editingUsername) {
-            HandleTextInput(ls->username, &ls->usernameLen, USERNAME_MAX_LEN);
+            UITextInput unInput = { ls->username, &ls->usernameLen, USERNAME_MAX_LEN, true };
+            UITextInputUpdate(&unInput);
             if (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_TAB))
                 ls->editingUsername = false;
         }
@@ -50,7 +36,8 @@ void LobbyUpdate(LobbyState *ls, NetContext *ctx)
 
     case LOBBY_JOIN_BROWSE:
         if (ls->editingIP) {
-            HandleTextInput(ls->directIP, &ls->directIPLen, 63);
+            UITextInput ipInput = { ls->directIP, &ls->directIPLen, 63, true };
+            UITextInputUpdate(&ipInput);
         }
         NetDiscoveryPoll(ctx);
         NetPoll(ctx, NULL, NULL, NULL, NULL, NULL);
@@ -62,33 +49,7 @@ void LobbyUpdate(LobbyState *ls, NetContext *ctx)
     }
 }
 
-// --- Draw Helpers ---
-
-static bool DrawButton(int x, int y, int w, int h, const char *text, int fontSize, Vector2 mouse)
-{
-    Rectangle rect = { (float)x, (float)y, (float)w, (float)h };
-    bool hover = CheckCollisionPointRec(mouse, rect);
-    Color bg = hover ? (Color){ 60, 80, 100, 255 } : (Color){ 40, 50, 65, 255 };
-    DrawRectangleRec(rect, bg);
-    DrawRectangleLinesEx(rect, 2, (Color){ 100, 140, 180, 200 });
-    int tw = MeasureText(text, fontSize);
-    DrawText(text, x + (w - tw) / 2, y + (h - fontSize) / 2, fontSize, WHITE);
-    return hover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
-}
-
-static void DrawTextBox(int x, int y, int w, int h, const char *text, bool active, Vector2 mouse)
-{
-    Rectangle rect = { (float)x, (float)y, (float)w, (float)h };
-    (void)mouse;
-    Color border = active ? (Color){ 100, 200, 100, 255 } : (Color){ 80, 80, 80, 255 };
-    DrawRectangleRec(rect, (Color){ 25, 25, 30, 255 });
-    DrawRectangleLinesEx(rect, 2, border);
-    DrawText(text, x + 6, y + (h - 16) / 2, 16, WHITE);
-    if (active) {
-        int tw = MeasureText(text, 16);
-        DrawText("_", x + 6 + tw, y + (h - 16) / 2, 16, (Color){ 100, 200, 100, 255 });
-    }
-}
+// Draw helpers now use ui.h components
 
 // --- Draw ---
 
@@ -100,46 +61,40 @@ void LobbyDraw(LobbyState *ls, NetContext *ctx, int screenW, int screenH)
 
     switch (ls->phase) {
     case LOBBY_CHOOSE: {
-        const char *title = "Multiplayer";
-        int titleW = MeasureText(title, 40);
-        DrawText(title, cx - titleW / 2, 60, 40, WHITE);
+        UIDrawCenteredText("Multiplayer", cx, 60, 40, WHITE);
 
         // Username
         DrawText("Username:", cx - 140, 140, 18, LIGHTGRAY);
-        DrawTextBox(cx - 140, 165, 280, 32, ls->username, ls->editingUsername, mouse);
+        UITextInput unDisplay = { ls->username, &ls->usernameLen, USERNAME_MAX_LEN, ls->editingUsername };
+        UITextInputDraw(&unDisplay, cx - 140, 165, 280, 32);
         Rectangle unRect = { (float)(cx - 140), 165.0f, 280.0f, 32.0f };
         if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
             ls->editingUsername = CheckCollisionPointRec(mouse, unRect);
         }
 
         // Host / Join buttons
-        if (DrawButton(cx - 100, 230, 200, 45, "Host Game", 24, mouse)) {
-            if (ls->usernameLen > 0) {
-                ls->hostRequested = true;
+        UIButtonResult hostBtn = UIButton(cx - 100, 230, 200, 45, "Host Game", 24, &UI_STYLE_NEUTRAL);
+        if (hostBtn.clicked && ls->usernameLen > 0) {
+            ls->hostRequested = true;
+        }
+
+        UIButtonResult joinBtn = UIButton(cx - 100, 290, 200, 45, "Join Game", 24, &UI_STYLE_NEUTRAL);
+        if (joinBtn.clicked && ls->usernameLen > 0) {
+            NetInit();
+            if (NetClientCreate(ctx)) {
+                NetDiscoveryStart(ctx);
+                ls->phase = LOBBY_JOIN_BROWSE;
             }
         }
 
-        if (DrawButton(cx - 100, 290, 200, 45, "Join Game", 24, mouse)) {
-            if (ls->usernameLen > 0) {
-                NetInit();
-                if (NetClientCreate(ctx)) {
-                    NetDiscoveryStart(ctx);
-                    ls->phase = LOBBY_JOIN_BROWSE;
-                }
-            }
-        }
-
-        if (DrawButton(cx - 100, 370, 200, 45, "Back", 24, mouse)) {
+        if (UIButton(cx - 100, 370, 200, 45, "Back", 24, &UI_STYLE_NEUTRAL).clicked) {
             ls->backRequested = true;
         }
         break;
     }
 
     case LOBBY_HOST_WAIT: {
-        const char *title = "Hosting Game";
-        int titleW = MeasureText(title, 36);
-        DrawText(title, cx - titleW / 2, 50, 36, WHITE);
-
+        UIDrawCenteredText("Hosting Game", cx, 50, 36, WHITE);
         DrawText("Waiting for players...", cx - 100, 100, 18, LIGHTGRAY);
 
         // Show selected map
@@ -147,25 +102,16 @@ void LobbyDraw(LobbyState *ls, NetContext *ctx, int screenW, int screenH)
                  cx - 150, 125, 16, (Color){ 180, 200, 255, 255 });
 
         // Player list
-        for (int i = 0; i < NET_MAX_PLAYERS; i++) {
-            int py = 150 + i * 35;
-            if (ctx->playerConnected[i]) {
-                Color col = PLAYER_COLORS[i];
-                DrawRectangle(cx - 150, py, 300, 30, (Color){ 30, 40, 50, 200 });
-                DrawText(TextFormat("P%d: %s", i + 1, ctx->playerNames[i]),
-                        cx - 140, py + 6, 18, col);
-            } else {
-                DrawRectangle(cx - 150, py, 300, 30, (Color){ 20, 20, 25, 150 });
-                DrawText(TextFormat("P%d: ---", i + 1), cx - 140, py + 6, 18, DARKGRAY);
-            }
-        }
+        UIDrawPlayerList(cx - 150, 150, 300, NET_MAX_PLAYERS,
+                         (const char (*)[16])ctx->playerNames, ctx->playerConnected,
+                         PLAYER_COLORS, -1);
 
         // Start button
-        if (DrawButton(cx - 100, 320, 200, 45, "Start Game", 24, mouse)) {
+        if (UIButton(cx - 100, 320, 200, 45, "Start Game", 24, &UI_STYLE_PRIMARY).clicked) {
             NetSendGameStart(ctx);
         }
 
-        if (DrawButton(cx - 100, 380, 200, 40, "Cancel", 20, mouse)) {
+        if (UIButton(cx - 100, 380, 200, 40, "Cancel", 20, &UI_STYLE_NEUTRAL).clicked) {
             NetDiscoveryStop(ctx);
             NetContextDestroy(ctx);
             NetShutdown();
@@ -175,10 +121,7 @@ void LobbyDraw(LobbyState *ls, NetContext *ctx, int screenW, int screenH)
     }
 
     case LOBBY_JOIN_BROWSE: {
-        const char *title = "Join Game";
-        int titleW = MeasureText(title, 36);
-        DrawText(title, cx - titleW / 2, 50, 36, WHITE);
-
+        UIDrawCenteredText("Join Game", cx, 50, 36, WHITE);
         DrawText("LAN Games:", cx - 150, 100, 18, LIGHTGRAY);
 
         // Game list
@@ -207,14 +150,16 @@ void LobbyDraw(LobbyState *ls, NetContext *ctx, int screenW, int screenH)
 
         // Direct IP entry
         DrawText("Or enter IP:", cx - 150, baseY, 16, LIGHTGRAY);
-        DrawTextBox(cx - 150, baseY + 22, 220, 28, ls->directIP, ls->editingIP, mouse);
+        UITextInput ipDisplay = { ls->directIP, &ls->directIPLen, 63, ls->editingIP };
+        UITextInputDraw(&ipDisplay, cx - 150, baseY + 22, 220, 28);
         Rectangle ipRect = { (float)(cx - 150), (float)(baseY + 22), 220.0f, 28.0f };
         if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
             ls->editingIP = CheckCollisionPointRec(mouse, ipRect);
         }
 
         // Connect button
-        if (DrawButton(cx + 80, baseY + 20, 80, 30, "Connect", 16, mouse)) {
+        UIButtonResult connBtn = UIButton(cx + 80, baseY + 20, 80, 30, "Connect", 16, &UI_STYLE_NEUTRAL);
+        if (connBtn.clicked) {
             const char *addr = NULL;
             if (ls->directIPLen > 0) {
                 addr = ls->directIP;
@@ -229,7 +174,7 @@ void LobbyDraw(LobbyState *ls, NetContext *ctx, int screenW, int screenH)
             }
         }
 
-        if (DrawButton(cx - 100, baseY + 70, 200, 40, "Cancel", 20, mouse)) {
+        if (UIButton(cx - 100, baseY + 70, 200, 40, "Cancel", 20, &UI_STYLE_NEUTRAL).clicked) {
             NetDiscoveryStop(ctx);
             NetContextDestroy(ctx);
             NetShutdown();
@@ -239,10 +184,7 @@ void LobbyDraw(LobbyState *ls, NetContext *ctx, int screenW, int screenH)
     }
 
     case LOBBY_JOIN_WAIT: {
-        const char *title = "Lobby";
-        int titleW = MeasureText(title, 36);
-        DrawText(title, cx - titleW / 2, 50, 36, WHITE);
-
+        UIDrawCenteredText("Lobby", cx, 50, 36, WHITE);
         DrawText("Waiting for host to start...", cx - 120, 100, 18, LIGHTGRAY);
 
         // Show selected map
@@ -250,21 +192,11 @@ void LobbyDraw(LobbyState *ls, NetContext *ctx, int screenW, int screenH)
                  cx - 150, 125, 16, (Color){ 180, 200, 255, 255 });
 
         // Player list
-        for (int i = 0; i < NET_MAX_PLAYERS; i++) {
-            int py = 150 + i * 35;
-            if (ctx->playerConnected[i]) {
-                Color col = PLAYER_COLORS[i];
-                DrawRectangle(cx - 150, py, 300, 30, (Color){ 30, 40, 50, 200 });
-                DrawText(TextFormat("P%d: %s%s", i + 1, ctx->playerNames[i],
-                        i == ctx->localPlayerIndex ? " (You)" : ""),
-                        cx - 140, py + 6, 18, col);
-            } else {
-                DrawRectangle(cx - 150, py, 300, 30, (Color){ 20, 20, 25, 150 });
-                DrawText(TextFormat("P%d: ---", i + 1), cx - 140, py + 6, 18, DARKGRAY);
-            }
-        }
+        UIDrawPlayerList(cx - 150, 150, 300, NET_MAX_PLAYERS,
+                         (const char (*)[16])ctx->playerNames, ctx->playerConnected,
+                         PLAYER_COLORS, ctx->localPlayerIndex);
 
-        if (DrawButton(cx - 100, 310, 200, 40, "Disconnect", 20, mouse)) {
+        if (UIButton(cx - 100, 310, 200, 40, "Disconnect", 20, &UI_STYLE_NEUTRAL).clicked) {
             NetContextDestroy(ctx);
             NetShutdown();
             ls->phase = LOBBY_CHOOSE;

@@ -8,22 +8,22 @@
 // --- Shop Item Configs ---
 
 const ShopItemConfig SHOP_ITEMS[SHOP_ITEM_COUNT] = {
-    [SHOP_DAMAGE_1]          = { "Hardened Rounds",      "+10% tower damage",        80,  -1 },
-    [SHOP_DAMAGE_2]          = { "Armor-Piercing Rounds", "+15% tower damage (stacks)", 150, SHOP_DAMAGE_1 },
-    [SHOP_STARTING_GOLD]     = { "War Chest",            "+50 starting gold",       100, -1 },
-    [SHOP_STARTING_LIVES]    = { "Reinforced Walls",     "+3 starting lives",       120, -1 },
-    [SHOP_TOWER_COST]        = { "Bulk Discount",        "-10% tower build cost",   100, -1 },
-    [SHOP_GOLD_PER_KILL]     = { "Bounty Hunter",        "+15% gold per kill",      120, -1 },
-    [SHOP_TOWER_RANGE]       = { "Optics Package",       "+10% tower range",        100, -1 },
-    [SHOP_UNLOCK_SNIPER]     = { "Sniper Blueprint",     "Unlock Sniper tower",     120, -1 },
-    [SHOP_UNLOCK_SLOW]       = { "Slow Field Blueprint", "Unlock Slow tower",       100, -1 },
-    [SHOP_UNLOCK_LASER]      = { "Laser Blueprint",      "Unlock Laser tower",      150, -1 },
-    [SHOP_UNLOCK_MORTAR]     = { "Mortar Blueprint",     "Unlock Mortar tower",     180, SHOP_UNLOCK_SNIPER },
-    [SHOP_UNLOCK_TESLA]      = { "Tesla Blueprint",      "Unlock Tesla tower",      200, SHOP_UNLOCK_SLOW },
-    [SHOP_UNLOCK_FLAME]      = { "Flame Blueprint",      "Unlock Flame tower",      150, -1 },
-    [SHOP_ABILITY_AIRSTRIKE] = { "Airstrike Module",     "Unlock Airstrike (Q)",    100, -1 },
-    [SHOP_ABILITY_GOLD_RUSH] = { "Gold Rush Module",     "Unlock Gold Rush (E)",     80, -1 },
-    [SHOP_ABILITY_FORTIFY]   = { "Fortify Module",       "Unlock Fortify (R)",      100, -1 },
+    [SHOP_DAMAGE_1]          = { "Hardened Rounds",      "+10% tower damage",        80,  -1, SHOP_CAT_STAT_BOOST },
+    [SHOP_DAMAGE_2]          = { "Armor-Piercing Rounds", "+15% tower damage (stacks)", 150, SHOP_DAMAGE_1, SHOP_CAT_STAT_BOOST },
+    [SHOP_STARTING_GOLD]     = { "War Chest",            "+50 starting gold",       100, -1, SHOP_CAT_STAT_BOOST },
+    [SHOP_STARTING_LIVES]    = { "Reinforced Walls",     "+3 starting lives",       120, -1, SHOP_CAT_STAT_BOOST },
+    [SHOP_TOWER_COST]        = { "Bulk Discount",        "-10% tower build cost",   100, -1, SHOP_CAT_STAT_BOOST },
+    [SHOP_GOLD_PER_KILL]     = { "Bounty Hunter",        "+15% gold per kill",      120, -1, SHOP_CAT_STAT_BOOST },
+    [SHOP_TOWER_RANGE]       = { "Optics Package",       "+10% tower range",        100, -1, SHOP_CAT_STAT_BOOST },
+    [SHOP_UNLOCK_SNIPER]     = { "Sniper Blueprint",     "Unlock Sniper tower",     120, -1, SHOP_CAT_TOWER_UNLOCK },
+    [SHOP_UNLOCK_SLOW]       = { "Slow Field Blueprint", "Unlock Slow tower",       100, -1, SHOP_CAT_TOWER_UNLOCK },
+    [SHOP_UNLOCK_LASER]      = { "Laser Blueprint",      "Unlock Laser tower",      150, -1, SHOP_CAT_TOWER_UNLOCK },
+    [SHOP_UNLOCK_MORTAR]     = { "Mortar Blueprint",     "Unlock Mortar tower",     180, SHOP_UNLOCK_SNIPER, SHOP_CAT_TOWER_UNLOCK },
+    [SHOP_UNLOCK_TESLA]      = { "Tesla Blueprint",      "Unlock Tesla tower",      200, SHOP_UNLOCK_SLOW, SHOP_CAT_TOWER_UNLOCK },
+    [SHOP_UNLOCK_FLAME]      = { "Flame Blueprint",      "Unlock Flame tower",      150, -1, SHOP_CAT_TOWER_UNLOCK },
+    [SHOP_ABILITY_AIRSTRIKE] = { "Airstrike Module",     "Unlock Airstrike (Q)",    100, -1, SHOP_CAT_ABILITY },
+    [SHOP_ABILITY_GOLD_RUSH] = { "Gold Rush Module",     "Unlock Gold Rush (E)",     80, -1, SHOP_CAT_ABILITY },
+    [SHOP_ABILITY_FORTIFY]   = { "Fortify Module",       "Unlock Fortify (R)",      100, -1, SHOP_CAT_ABILITY },
 };
 
 // --- Perk Configs ---
@@ -84,6 +84,84 @@ bool PlayerProfileSave(const PlayerProfile *profile, const char *path)
     return written == 1;
 }
 
+// --- Modifier Deltas ---
+
+void RunModifiersApplyDeltas(RunModifiers *mods, const ModifierDeltas *d)
+{
+    mods->damageMultiplier      *= d->damageMultiplier;
+    mods->rangeMultiplier       *= d->rangeMultiplier;
+    mods->fireRateMultiplier    *= d->fireRateMultiplier;
+    mods->towerCostMultiplier   *= d->towerCostMultiplier;
+    mods->upgradeCostMultiplier *= d->upgradeCostMultiplier;
+    mods->goldPerKillMultiplier *= d->goldPerKillMultiplier;
+    mods->waveBonusMultiplier   *= d->waveBonusMultiplier;
+    mods->slowEffectMultiplier  *= d->slowEffectMultiplier;
+    mods->tankDamageMultiplier  *= d->tankDamageMultiplier;
+    mods->fastDamageMultiplier  *= d->fastDamageMultiplier;
+    mods->greedSpeedMultiplier  *= d->greedSpeedMultiplier;
+    mods->bonusStartingGold     += d->bonusStartingGold;
+    mods->bonusStartingLives    += d->bonusStartingLives;
+    mods->aoeBonus              += d->aoeBonus;
+    if (d->sniperPierce) mods->sniperPierce = true;
+    if (d->secondWind)   mods->secondWind = true;
+    if (d->overcharge)   mods->overcharge = true;
+}
+
+// --- Perk Effects Table ---
+
+const ModifierDeltas PERK_EFFECTS[PERK_COUNT] = {
+    [PERK_PENETRATING_ROUNDS] = { 1,1,1,1,1,1,1,1,1,1,1, 0,0, 0, true,false,false },
+    [PERK_GLASS_CANNON]       = { 1.30f,1,1,1.20f,1,1,1,1,1,1,1, 0,0, 0, false,false,false },
+    [PERK_GREED]              = { 1,1,1,1,1,2.0f,1,1,1,1,1.20f, 0,0, 0, false,false,false },
+    [PERK_BUNKER_DOWN]        = { 1,1,1,1,1,1,1,1,1,1,1, -30,5, 0, false,false,false },
+    [PERK_RAPID_FIRE]         = { 0.85f,1,1.25f,1,1,1,1,1,1,1,1, 0,0, 0, false,false,false },
+    [PERK_EAGLE_EYE]          = { 1,1.20f,0.90f,1,1,1,1,1,1,1,1, 0,0, 0, false,false,false },
+    [PERK_WAR_BONDS]          = { 1,1,1,1,1,1,1.25f,1,1,1,1, 0,0, 0, false,false,false },
+    [PERK_PERMAFROST]         = { 1,1,1,1,1,1,1,1.40f,1,1,1, 0,0, 0, false,false,false },
+    [PERK_TANK_BUSTER]        = { 1,1,1,1,1,1,1,1,1.50f,0.80f,1, 0,0, 0, false,false,false },
+    [PERK_FIELD_ENGINEER]     = { 1,1,1,1,0.80f,1,1,1,1,1,1, 0,0, 0, false,false,false },
+    [PERK_EXPLOSIVE_TIPS]     = { 1,1,1,1,1,1,1,1,1,1,1, 0,0, 0.5f, false,false,false },
+    [PERK_SECOND_WIND]        = { 1,1,1,1,1,1,1,1,1,1,1, 0,0, 0, false,true,false },
+    [PERK_PREFAB_TOWERS]      = { 1,0.90f,1,0.85f,1,1,1,1,1,1,1, 0,0, 0, false,false,false },
+    [PERK_OVERCHARGE]         = { 1,1,1,1,1,1,1,1,1,1,1, 0,0, 0, false,false,true },
+};
+
+// --- Shop Effects Table ---
+
+// Tower type indices matching TowerType enum
+#define TT_SNIPER 2
+#define TT_SLOW   3
+#define TT_LASER  4
+#define TT_MORTAR 5
+#define TT_TESLA  6
+#define TT_FLAME  7
+
+const ShopItemEffect SHOP_EFFECTS[SHOP_ITEM_COUNT] = {
+    [SHOP_DAMAGE_1]          = { { 1.10f,1,1,1,1,1,1,1,1,1,1, 0,0, 0, false,false,false }, -1, -1 },
+    [SHOP_DAMAGE_2]          = { { 1.15f,1,1,1,1,1,1,1,1,1,1, 0,0, 0, false,false,false }, -1, -1 },
+    [SHOP_STARTING_GOLD]     = { { 1,1,1,1,1,1,1,1,1,1,1, 50,0, 0, false,false,false }, -1, -1 },
+    [SHOP_STARTING_LIVES]    = { { 1,1,1,1,1,1,1,1,1,1,1, 0,3, 0, false,false,false }, -1, -1 },
+    [SHOP_TOWER_COST]        = { { 1,1,1,0.90f,1,1,1,1,1,1,1, 0,0, 0, false,false,false }, -1, -1 },
+    [SHOP_GOLD_PER_KILL]     = { { 1,1,1,1,1,1.15f,1,1,1,1,1, 0,0, 0, false,false,false }, -1, -1 },
+    [SHOP_TOWER_RANGE]       = { { 1,1.10f,1,1,1,1,1,1,1,1,1, 0,0, 0, false,false,false }, -1, -1 },
+    [SHOP_UNLOCK_SNIPER]     = { { 1,1,1,1,1,1,1,1,1,1,1, 0,0, 0, false,false,false }, TT_SNIPER, -1 },
+    [SHOP_UNLOCK_SLOW]       = { { 1,1,1,1,1,1,1,1,1,1,1, 0,0, 0, false,false,false }, TT_SLOW, -1 },
+    [SHOP_UNLOCK_LASER]      = { { 1,1,1,1,1,1,1,1,1,1,1, 0,0, 0, false,false,false }, TT_LASER, -1 },
+    [SHOP_UNLOCK_MORTAR]     = { { 1,1,1,1,1,1,1,1,1,1,1, 0,0, 0, false,false,false }, TT_MORTAR, -1 },
+    [SHOP_UNLOCK_TESLA]      = { { 1,1,1,1,1,1,1,1,1,1,1, 0,0, 0, false,false,false }, TT_TESLA, -1 },
+    [SHOP_UNLOCK_FLAME]      = { { 1,1,1,1,1,1,1,1,1,1,1, 0,0, 0, false,false,false }, TT_FLAME, -1 },
+    [SHOP_ABILITY_AIRSTRIKE] = { { 1,1,1,1,1,1,1,1,1,1,1, 0,0, 0, false,false,false }, -1, ABILITY_AIRSTRIKE },
+    [SHOP_ABILITY_GOLD_RUSH] = { { 1,1,1,1,1,1,1,1,1,1,1, 0,0, 0, false,false,false }, -1, ABILITY_GOLD_RUSH },
+    [SHOP_ABILITY_FORTIFY]   = { { 1,1,1,1,1,1,1,1,1,1,1, 0,0, 0, false,false,false }, -1, ABILITY_FORTIFY },
+};
+
+#undef TT_SNIPER
+#undef TT_SLOW
+#undef TT_LASER
+#undef TT_MORTAR
+#undef TT_TESLA
+#undef TT_FLAME
+
 // --- Run Modifiers ---
 
 void RunModifiersInit(RunModifiers *mods, const PlayerProfile *profile)
@@ -110,102 +188,23 @@ void RunModifiersInit(RunModifiers *mods, const PlayerProfile *profile)
 
     if (!profile) return;
 
-    // Apply shop purchases
-    if (profile->shopPurchased[SHOP_DAMAGE_1])
-        mods->damageMultiplier *= 1.10f;
-    if (profile->shopPurchased[SHOP_DAMAGE_2])
-        mods->damageMultiplier *= 1.15f;
-    if (profile->shopPurchased[SHOP_STARTING_GOLD])
-        mods->bonusStartingGold += 50;
-    if (profile->shopPurchased[SHOP_STARTING_LIVES])
-        mods->bonusStartingLives += 3;
-    if (profile->shopPurchased[SHOP_TOWER_COST])
-        mods->towerCostMultiplier *= 0.90f;
-    if (profile->shopPurchased[SHOP_GOLD_PER_KILL])
-        mods->goldPerKillMultiplier *= 1.15f;
-    if (profile->shopPurchased[SHOP_TOWER_RANGE])
-        mods->rangeMultiplier *= 1.10f;
-
-    // Tower unlocks
-    if (profile->shopPurchased[SHOP_UNLOCK_SNIPER])
-        mods->towerUnlocked[2] = true; // TOWER_SNIPER
-    if (profile->shopPurchased[SHOP_UNLOCK_SLOW])
-        mods->towerUnlocked[3] = true; // TOWER_SLOW
-    if (profile->shopPurchased[SHOP_UNLOCK_LASER])
-        mods->towerUnlocked[4] = true; // TOWER_LASER
-    if (profile->shopPurchased[SHOP_UNLOCK_MORTAR])
-        mods->towerUnlocked[5] = true; // TOWER_MORTAR
-    if (profile->shopPurchased[SHOP_UNLOCK_TESLA])
-        mods->towerUnlocked[6] = true; // TOWER_TESLA
-    if (profile->shopPurchased[SHOP_UNLOCK_FLAME])
-        mods->towerUnlocked[7] = true; // TOWER_FLAME
-
-    // Ability unlocks
-    if (profile->shopPurchased[SHOP_ABILITY_AIRSTRIKE])
-        mods->abilityUnlocked[ABILITY_AIRSTRIKE] = true;
-    if (profile->shopPurchased[SHOP_ABILITY_GOLD_RUSH])
-        mods->abilityUnlocked[ABILITY_GOLD_RUSH] = true;
-    if (profile->shopPurchased[SHOP_ABILITY_FORTIFY])
-        mods->abilityUnlocked[ABILITY_FORTIFY] = true;
+    // Apply shop purchases via data table
+    for (int i = 0; i < SHOP_ITEM_COUNT; i++) {
+        if (!profile->shopPurchased[i]) continue;
+        const ShopItemEffect *eff = &SHOP_EFFECTS[i];
+        RunModifiersApplyDeltas(mods, &eff->modifiers);
+        if (eff->towerUnlockType >= 0)
+            mods->towerUnlocked[eff->towerUnlockType] = true;
+        if (eff->abilityUnlockID >= 0)
+            mods->abilityUnlocked[eff->abilityUnlockID] = true;
+    }
 }
 
 void RunModifiersApplyPerk(RunModifiers *mods, int perkID)
 {
+    if (perkID < 0 || perkID >= PERK_COUNT) return;
     mods->activePerk = perkID;
-
-    switch (perkID) {
-    case PERK_PENETRATING_ROUNDS:
-        mods->sniperPierce = true;
-        break;
-    case PERK_GLASS_CANNON:
-        mods->damageMultiplier *= 1.30f;
-        mods->towerCostMultiplier *= 1.20f;
-        break;
-    case PERK_GREED:
-        mods->goldPerKillMultiplier *= 2.0f;
-        mods->greedSpeedMultiplier = 1.20f;
-        break;
-    case PERK_BUNKER_DOWN:
-        mods->bonusStartingLives += 5;
-        mods->bonusStartingGold -= 30;
-        break;
-    case PERK_RAPID_FIRE:
-        mods->fireRateMultiplier *= 1.25f;
-        mods->damageMultiplier *= 0.85f;
-        break;
-    case PERK_EAGLE_EYE:
-        mods->rangeMultiplier *= 1.20f;
-        mods->fireRateMultiplier *= 0.90f;
-        break;
-    case PERK_WAR_BONDS:
-        mods->waveBonusMultiplier *= 1.25f;
-        break;
-    case PERK_PERMAFROST:
-        mods->slowEffectMultiplier *= 1.40f;
-        break;
-    case PERK_TANK_BUSTER:
-        mods->tankDamageMultiplier *= 1.50f;
-        mods->fastDamageMultiplier *= 0.80f;
-        break;
-    case PERK_FIELD_ENGINEER:
-        mods->upgradeCostMultiplier *= 0.80f;
-        break;
-    case PERK_EXPLOSIVE_TIPS:
-        mods->aoeBonus += 0.5f;
-        break;
-    case PERK_SECOND_WIND:
-        mods->secondWind = true;
-        break;
-    case PERK_PREFAB_TOWERS:
-        mods->towerCostMultiplier *= 0.85f;
-        mods->rangeMultiplier *= 0.90f;
-        break;
-    case PERK_OVERCHARGE:
-        mods->overcharge = true;
-        break;
-    default:
-        break;
-    }
+    RunModifiersApplyDeltas(mods, &PERK_EFFECTS[perkID]);
 }
 
 // --- Crystal Earning ---

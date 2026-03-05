@@ -31,50 +31,63 @@ const EnemyConfig ENEMY_CONFIGS[ENEMY_TYPE_COUNT] = {
 
 // --- Tower Config: [type][level] ---
 // damage, range, fireRate, projSpeed, slowFactor, slowDuration, aoeRadius, cost, color,
-// isBeam, chainCount, burnDPS, burnDuration
+// attackMode, chainCount, chainRange, chainDamageMult, coneAngle, burnDPS, burnDuration,
+// arcHeightFactor, projectileSize, overchargeMult, pierceCount
+
+#define PROJ_CFG TOWER_ATTACK_PROJECTILE, 0, 0,0, 0, 0,0, 0, 0.1f, 1.4f, 0
+#define BEAM_CFG TOWER_ATTACK_BEAM, 0, 0,0, 0, 0,0, 0, 0, 1.4f, 0
+#define CHAIN_CFG(n) TOWER_ATTACK_CHAIN, n, 2.0f, 0.7f, 0, 0,0, 0, 0, 1.4f, 0
+#define CONE_CFG(bdps,bdur) TOWER_ATTACK_CONE, 0, 0,0, 30.0f, bdps, bdur, 0, 0, 1.4f, 0
+#define MORTAR_CFG TOWER_ATTACK_MORTAR, 0, 0,0, 0, 0,0, 0.4f, 0.15f, 1.4f, 0
 
 const TowerConfig TOWER_CONFIGS[TOWER_TYPE_COUNT][TOWER_MAX_LEVEL] = {
     [TOWER_CANNON] = {
-        { 40.0f, 3.5f, 1.0f, 8.0f,  1.0f, 0.0f, 0.0f, 50,  (Color){140,140,140,255}, false, 0, 0.0f, 0.0f },
-        { 65.0f, 4.0f, 1.0f, 9.0f,  1.0f, 0.0f, 0.0f, 75,  (Color){170,170,170,255}, false, 0, 0.0f, 0.0f },
-        { 90.0f, 4.5f, 1.2f, 10.0f, 1.0f, 0.0f, 1.5f, 120, (Color){210,210,210,255}, false, 0, 0.0f, 0.0f },
+        { 40.0f, 3.5f, 1.0f, 8.0f,  1.0f, 0.0f, 0.0f, 50,  (Color){140,140,140,255}, PROJ_CFG },
+        { 65.0f, 4.0f, 1.0f, 9.0f,  1.0f, 0.0f, 0.0f, 75,  (Color){170,170,170,255}, PROJ_CFG },
+        { 90.0f, 4.5f, 1.2f, 10.0f, 1.0f, 0.0f, 1.5f, 120, (Color){210,210,210,255}, PROJ_CFG },
     },
     [TOWER_MACHINEGUN] = {
-        { 10.0f, 3.0f, 4.0f, 12.0f, 1.0f, 0.0f, 0.0f, 40,  (Color){220,140,30,255}, false, 0, 0.0f, 0.0f },
-        { 15.0f, 3.5f, 5.0f, 14.0f, 1.0f, 0.0f, 0.0f, 60,  (Color){230,180,30,255}, false, 0, 0.0f, 0.0f },
-        { 22.0f, 4.0f, 6.5f, 16.0f, 1.0f, 0.0f, 0.0f, 100, (Color){255,220,50,255}, false, 0, 0.0f, 0.0f },
+        { 10.0f, 3.0f, 4.0f, 12.0f, 1.0f, 0.0f, 0.0f, 40,  (Color){220,140,30,255}, PROJ_CFG },
+        { 15.0f, 3.5f, 5.0f, 14.0f, 1.0f, 0.0f, 0.0f, 60,  (Color){230,180,30,255}, PROJ_CFG },
+        { 22.0f, 4.0f, 6.5f, 16.0f, 1.0f, 0.0f, 0.0f, 100, (Color){255,220,50,255}, PROJ_CFG },
     },
     [TOWER_SNIPER] = {
-        { 80.0f,  7.0f, 0.5f, 20.0f, 1.0f, 0.0f, 0.0f, 70,  (Color){80,120,200,255}, false, 0, 0.0f, 0.0f },
-        { 130.0f, 8.0f, 0.5f, 24.0f, 1.0f, 0.0f, 0.0f, 110, (Color){100,150,230,255}, false, 0, 0.0f, 0.0f },
-        { 200.0f, 9.5f, 0.6f, 28.0f, 1.0f, 0.0f, 0.0f, 160, (Color){140,180,255,255}, false, 0, 0.0f, 0.0f },
+        { 80.0f,  7.0f, 0.5f, 20.0f, 1.0f, 0.0f, 0.0f, 70,  (Color){80,120,200,255}, PROJ_CFG },
+        { 130.0f, 8.0f, 0.5f, 24.0f, 1.0f, 0.0f, 0.0f, 110, (Color){100,150,230,255}, PROJ_CFG },
+        { 200.0f, 9.5f, 0.6f, 28.0f, 1.0f, 0.0f, 0.0f, 160, (Color){140,180,255,255}, PROJ_CFG },
     },
     [TOWER_SLOW] = {
-        { 5.0f,  3.5f, 1.5f, 8.0f, 0.5f, 2.0f, 1.0f, 60,  (Color){150,80,200,255}, false, 0, 0.0f, 0.0f },
-        { 8.0f,  4.0f, 1.8f, 9.0f, 0.4f, 2.5f, 1.5f, 90,  (Color){170,100,220,255}, false, 0, 0.0f, 0.0f },
-        { 12.0f, 4.5f, 2.0f, 10.0f,0.3f, 3.0f, 2.0f, 130, (Color){200,130,255,255}, false, 0, 0.0f, 0.0f },
+        { 5.0f,  3.5f, 1.5f, 8.0f, 0.5f, 2.0f, 1.0f, 60,  (Color){150,80,200,255}, PROJ_CFG },
+        { 8.0f,  4.0f, 1.8f, 9.0f, 0.4f, 2.5f, 1.5f, 90,  (Color){170,100,220,255}, PROJ_CFG },
+        { 12.0f, 4.5f, 2.0f, 10.0f,0.3f, 3.0f, 2.0f, 130, (Color){200,130,255,255}, PROJ_CFG },
     },
     [TOWER_LASER] = {
-        { 25.0f, 3.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 65,  (Color){0,220,220,255},   true,  0, 0.0f, 0.0f },
-        { 35.0f, 3.5f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 95,  (Color){0,240,240,255},   true,  0, 0.0f, 0.0f },
-        { 50.0f, 4.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 140, (Color){100,255,255,255}, true,  0, 0.0f, 0.0f },
+        { 25.0f, 3.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 65,  (Color){0,220,220,255},   BEAM_CFG },
+        { 35.0f, 3.5f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 95,  (Color){0,240,240,255},   BEAM_CFG },
+        { 50.0f, 4.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 140, (Color){100,255,255,255}, BEAM_CFG },
     },
     [TOWER_MORTAR] = {
-        { 60.0f,  8.0f,  0.4f, 6.0f, 1.0f, 0.0f, 2.0f, 80,  (Color){160,120,60,255},  false, 0, 0.0f, 0.0f },
-        { 90.0f,  9.0f,  0.45f,6.0f, 1.0f, 0.0f, 2.5f, 120, (Color){180,140,70,255},  false, 0, 0.0f, 0.0f },
-        { 130.0f, 10.0f, 0.5f, 6.0f, 1.0f, 0.0f, 3.0f, 170, (Color){200,170,90,255},  false, 0, 0.0f, 0.0f },
+        { 60.0f,  8.0f,  0.4f, 6.0f, 1.0f, 0.0f, 2.0f, 80,  (Color){160,120,60,255},  MORTAR_CFG },
+        { 90.0f,  9.0f,  0.45f,6.0f, 1.0f, 0.0f, 2.5f, 120, (Color){180,140,70,255},  MORTAR_CFG },
+        { 130.0f, 10.0f, 0.5f, 6.0f, 1.0f, 0.0f, 3.0f, 170, (Color){200,170,90,255},  MORTAR_CFG },
     },
     [TOWER_TESLA] = {
-        { 30.0f, 4.0f, 0.8f, 0.0f, 1.0f, 0.0f, 0.0f, 75,  (Color){80,140,255,255},  false, 3, 0.0f, 0.0f },
-        { 45.0f, 4.5f, 0.8f, 0.0f, 1.0f, 0.0f, 0.0f, 110, (Color){100,160,255,255}, false, 3, 0.0f, 0.0f },
-        { 65.0f, 5.0f, 0.8f, 0.0f, 1.0f, 0.0f, 0.0f, 155, (Color){140,190,255,255}, false, 4, 0.0f, 0.0f },
+        { 30.0f, 4.0f, 0.8f, 0.0f, 1.0f, 0.0f, 0.0f, 75,  (Color){80,140,255,255},  CHAIN_CFG(3) },
+        { 45.0f, 4.5f, 0.8f, 0.0f, 1.0f, 0.0f, 0.0f, 110, (Color){100,160,255,255}, CHAIN_CFG(3) },
+        { 65.0f, 5.0f, 0.8f, 0.0f, 1.0f, 0.0f, 0.0f, 155, (Color){140,190,255,255}, CHAIN_CFG(4) },
     },
     [TOWER_FLAME] = {
-        { 15.0f, 2.5f, 1.0f, 0.0f, 1.0f, 0.0f, 0.0f, 55,  (Color){255,100,30,255},  false, 0, 8.0f,  2.0f },
-        { 22.0f, 3.0f, 1.0f, 0.0f, 1.0f, 0.0f, 0.0f, 85,  (Color){255,140,40,255},  false, 0, 12.0f, 2.5f },
-        { 30.0f, 3.5f, 1.0f, 0.0f, 1.0f, 0.0f, 0.0f, 125, (Color){255,180,60,255},  false, 0, 18.0f, 3.0f },
+        { 15.0f, 2.5f, 1.0f, 0.0f, 1.0f, 0.0f, 0.0f, 55,  (Color){255,100,30,255},  CONE_CFG(8.0f, 2.0f) },
+        { 22.0f, 3.0f, 1.0f, 0.0f, 1.0f, 0.0f, 0.0f, 85,  (Color){255,140,40,255},  CONE_CFG(12.0f, 2.5f) },
+        { 30.0f, 3.5f, 1.0f, 0.0f, 1.0f, 0.0f, 0.0f, 125, (Color){255,180,60,255},  CONE_CFG(18.0f, 3.0f) },
     },
 };
+
+#undef PROJ_CFG
+#undef BEAM_CFG
+#undef CHAIN_CFG
+#undef CONE_CFG
+#undef MORTAR_CFG
 
 const char *TOWER_NAMES[TOWER_TYPE_COUNT] = {
     "Cannon", "MG", "Sniper", "Slow", "Laser", "Mortar", "Tesla", "Flame"
@@ -354,197 +367,255 @@ static int TeslaFindChainTarget(const Enemy enemies[], int maxEnemies,
     return bestIdx;
 }
 
+// --- Per-behavior fire functions ---
+
+static void FireBeam(Tower *t, const TowerConfig *cfg, Enemy enemies[], int maxEnemies,
+                     Projectile projectiles[], int maxProjectiles, GameState *gs,
+                     const Map *map, RunModifiers *mods, float dt)
+{
+    (void)projectiles; (void)maxProjectiles;
+    float damageMult = (mods) ? mods->damageMultiplier : 1.0f;
+    int target = TowerFindTarget(t, enemies, maxEnemies, map, mods);
+    if (target >= 0) {
+        t->beamTarget = enemies[target].id;
+        float dps = cfg->damage * damageMult;
+        if (mods) {
+            if (enemies[target].type == ENEMY_TANK) dps *= mods->tankDamageMultiplier;
+            else if (enemies[target].type == ENEMY_FAST) dps *= mods->fastDamageMultiplier;
+        }
+        float goldMult = (mods) ? mods->goldPerKillMultiplier : 1.0f;
+        bool goldRush = (mods) ? mods->goldRushActive : false;
+
+        enemies[target].hp -= dps * dt;
+        if (enemies[target].hp <= 0.0f) {
+            enemies[target].active = false;
+            int goldEarned = (int)(gs->goldPerKill * goldMult);
+            if (goldRush) goldEarned *= 2;
+            gs->playerGold[t->ownerPlayer] += goldEarned;
+            gs->gold = gs->playerGold[0];
+            t->beamTarget = ENTITY_ID_NONE;
+        }
+    } else {
+        t->beamTarget = ENTITY_ID_NONE;
+    }
+}
+
+static void FireChain(Tower *t, const TowerConfig *cfg, Enemy enemies[], int maxEnemies,
+                      Projectile projectiles[], int maxProjectiles, GameState *gs,
+                      const Map *map, RunModifiers *mods, float dt)
+{
+    (void)projectiles; (void)maxProjectiles;
+    float fireRateMult = (mods) ? mods->fireRateMultiplier : 1.0f;
+    t->cooldownTimer -= dt;
+    if (t->cooldownTimer > 0.0f) return;
+
+    int target = TowerFindTarget(t, enemies, maxEnemies, map, mods);
+    if (target < 0) return;
+
+    t->cooldownTimer = 1.0f / (cfg->fireRate * fireRateMult);
+
+    float damage = cfg->damage;
+    if (mods && mods->overcharge && t->cooldownReady) {
+        damage *= cfg->overchargeMult;
+        t->cooldownReady = false;
+    }
+
+    ApplyDamageAndSlow(&enemies[target], damage, cfg->slowFactor, cfg->slowDuration,
+                      t->ownerPlayer, gs, mods);
+
+    bool hit[MAX_ENEMIES] = {false};
+    hit[target] = true;
+    Vector3 lastPos = enemies[target].worldPos;
+    for (int c = 0; c < cfg->chainCount; c++) {
+        int next = TeslaFindChainTarget(enemies, maxEnemies, lastPos, cfg->chainRange, hit, -1);
+        if (next < 0) break;
+        hit[next] = true;
+        float chainDmg = damage * cfg->chainDamageMult;
+        ApplyDamageAndSlow(&enemies[next], chainDmg, cfg->slowFactor, cfg->slowDuration,
+                          t->ownerPlayer, gs, mods);
+        lastPos = enemies[next].worldPos;
+    }
+    t->cooldownReady = true;
+}
+
+static void FireCone(Tower *t, const TowerConfig *cfg, Enemy enemies[], int maxEnemies,
+                     Projectile projectiles[], int maxProjectiles, GameState *gs,
+                     const Map *map, RunModifiers *mods, float dt)
+{
+    (void)projectiles; (void)maxProjectiles;
+    float fireRateMult = (mods) ? mods->fireRateMultiplier : 1.0f;
+    float damageMult = (mods) ? mods->damageMultiplier : 1.0f;
+    t->cooldownTimer -= dt;
+    if (t->cooldownTimer > 0.0f) return;
+
+    int target = TowerFindTarget(t, enemies, maxEnemies, map, mods);
+    if (target < 0) return;
+
+    t->cooldownTimer = 1.0f / (cfg->fireRate * fireRateMult);
+
+    float damage = cfg->damage;
+    if (mods && mods->overcharge && t->cooldownReady) {
+        damage *= cfg->overchargeMult;
+        t->cooldownReady = false;
+    }
+
+    Vector3 dir = Vector3Subtract(enemies[target].worldPos, t->worldPos);
+    dir.y = 0.0f;
+    float dirLen = Vector3Length(dir);
+    if (dirLen < 0.01f) return;
+    dir = Vector3Scale(dir, 1.0f / dirLen);
+
+    float rangeMult = (mods) ? mods->rangeMultiplier : 1.0f;
+    float effectiveRange = cfg->range * rangeMult;
+    float coneAngle = cfg->coneAngle * DEG2RAD;
+
+    for (int j = 0; j < maxEnemies; j++) {
+        if (!enemies[j].active) continue;
+        float dist = Vector3Distance(t->worldPos, enemies[j].worldPos);
+        if (dist > effectiveRange) continue;
+
+        Vector3 toEnemy = Vector3Subtract(enemies[j].worldPos, t->worldPos);
+        toEnemy.y = 0.0f;
+        float toLen = Vector3Length(toEnemy);
+        if (toLen < 0.01f) continue;
+        toEnemy = Vector3Scale(toEnemy, 1.0f / toLen);
+
+        float dot = dir.x * toEnemy.x + dir.z * toEnemy.z;
+        if (dot >= cosf(coneAngle)) {
+            ApplyDamageAndSlow(&enemies[j], damage, cfg->slowFactor, cfg->slowDuration,
+                              t->ownerPlayer, gs, mods);
+            enemies[j].burnDPS = cfg->burnDPS * damageMult;
+            enemies[j].burnTimer = cfg->burnDuration;
+        }
+    }
+    t->cooldownReady = true;
+}
+
+static void FireMortar(Tower *t, const TowerConfig *cfg, Enemy enemies[], int maxEnemies,
+                       Projectile projectiles[], int maxProjectiles, GameState *gs,
+                       const Map *map, RunModifiers *mods, float dt)
+{
+    float fireRateMult = (mods) ? mods->fireRateMultiplier : 1.0f;
+    float aoeBonus = (mods) ? mods->aoeBonus : 0.0f;
+    t->cooldownTimer -= dt;
+    if (t->cooldownTimer > 0.0f) return;
+
+    int target = TowerFindTarget(t, enemies, maxEnemies, map, mods);
+    if (target < 0) return;
+
+    t->cooldownTimer = 1.0f / (cfg->fireRate * fireRateMult);
+    Vector3 origin = t->worldPos;
+    origin.y += 0.3f;
+
+    float damage = cfg->damage;
+    if (mods && mods->overcharge && t->cooldownReady) {
+        damage *= cfg->overchargeMult;
+        t->cooldownReady = false;
+    }
+
+    float aoe = cfg->aoeRadius + aoeBonus;
+
+    ProjectileSpawn(projectiles, maxProjectiles, origin, enemies[target].id,
+                   damage, cfg->projectileSpeed,
+                   cfg->slowFactor, cfg->slowDuration, aoe, cfg->color,
+                   t->ownerPlayer, gs);
+    for (int p = 0; p < maxProjectiles; p++) {
+        if (projectiles[p].active && projectiles[p].targetEnemyID == enemies[target].id &&
+            Vector3Distance(projectiles[p].position, origin) < 0.5f) {
+            projectiles[p].isArcing = true;
+            projectiles[p].targetPos = enemies[target].worldPos;
+            projectiles[p].startPos = origin;
+            projectiles[p].arcProgress = 0.0f;
+            break;
+        }
+    }
+    t->cooldownReady = true;
+}
+
+static void FireProjectile(Tower *t, const TowerConfig *cfg, Enemy enemies[], int maxEnemies,
+                            Projectile projectiles[], int maxProjectiles, GameState *gs,
+                            const Map *map, RunModifiers *mods, float dt)
+{
+    float fireRateMult = (mods) ? mods->fireRateMultiplier : 1.0f;
+    float aoeBonus = (mods) ? mods->aoeBonus : 0.0f;
+    t->cooldownTimer -= dt;
+    if (t->cooldownTimer > 0.0f) return;
+
+    int target = TowerFindTarget(t, enemies, maxEnemies, map, mods);
+    if (target < 0) return;
+
+    t->cooldownTimer = 1.0f / (cfg->fireRate * fireRateMult);
+    Vector3 origin = t->worldPos;
+    origin.y += 0.3f;
+
+    float damage = cfg->damage;
+    if (mods && mods->overcharge && t->cooldownReady) {
+        damage *= cfg->overchargeMult;
+        t->cooldownReady = false;
+    }
+
+    float aoe = cfg->aoeRadius + aoeBonus;
+
+    int pierce = 0;
+    if (t->type == TOWER_SNIPER && mods && mods->sniperPierce)
+        pierce = 2;
+
+    ProjectileSpawn(projectiles, maxProjectiles, origin, enemies[target].id,
+                   damage, cfg->projectileSpeed,
+                   cfg->slowFactor, cfg->slowDuration, aoe, cfg->color,
+                   t->ownerPlayer, gs);
+    if (pierce > 0) {
+        for (int p = 0; p < maxProjectiles; p++) {
+            if (projectiles[p].active && projectiles[p].targetEnemyID == enemies[target].id &&
+                Vector3Distance(projectiles[p].position, origin) < 0.5f) {
+                projectiles[p].pierceRemaining = pierce;
+                break;
+            }
+        }
+    }
+    t->cooldownReady = true;
+}
+
+// --- Draw Effects ---
+
+static void DrawBeamEffect(const Tower *t, const TowerConfig *cfg, const Enemy enemies[], int maxEnemies)
+{
+    if (t->beamTarget == ENTITY_ID_NONE) return;
+    Enemy *target = EnemyFindByID((Enemy *)enemies, maxEnemies, t->beamTarget);
+    if (!target) return;
+    Vector3 beamStart = t->worldPos;
+    beamStart.y += 0.3f;
+    DrawLine3D(beamStart, target->worldPos, cfg->color);
+    Vector3 offset = {0.02f, 0.02f, 0.0f};
+    DrawLine3D(Vector3Add(beamStart, offset), Vector3Add(target->worldPos, offset), cfg->color);
+}
+
+// --- Behavior Registry ---
+
+const TowerBehavior TOWER_BEHAVIORS[TOWER_TYPE_COUNT] = {
+    [TOWER_CANNON]     = { NULL, FireProjectile, NULL },
+    [TOWER_MACHINEGUN] = { NULL, FireProjectile, NULL },
+    [TOWER_SNIPER]     = { NULL, FireProjectile, NULL },
+    [TOWER_SLOW]       = { NULL, FireProjectile, NULL },
+    [TOWER_LASER]      = { NULL, FireBeam,       DrawBeamEffect },
+    [TOWER_MORTAR]     = { NULL, FireMortar,     NULL },
+    [TOWER_TESLA]      = { NULL, FireChain,      NULL },
+    [TOWER_FLAME]      = { NULL, FireCone,       NULL },
+};
+
+// --- TowersUpdate (dispatch via behavior registry) ---
+
 void TowersUpdate(Tower towers[], int maxTowers, Enemy enemies[], int maxEnemies,
                   Projectile projectiles[], int maxProjectiles, GameState *gs,
                   const Map *map, RunModifiers *mods, float dt)
 {
-    float fireRateMult = (mods) ? mods->fireRateMultiplier : 1.0f;
-    float damageMult = (mods) ? mods->damageMultiplier : 1.0f;
-    float aoeBonus = (mods) ? mods->aoeBonus : 0.0f;
-
     for (int i = 0; i < maxTowers; i++) {
         if (!towers[i].active) continue;
         Tower *t = &towers[i];
         const TowerConfig *cfg = &TOWER_CONFIGS[t->type][t->level];
+        const TowerBehavior *beh = &TOWER_BEHAVIORS[t->type];
 
-        // --- Laser: continuous beam, no cooldown ---
-        if (cfg->isBeam) {
-            int target = TowerFindTarget(t, enemies, maxEnemies, map, mods);
-            if (target >= 0) {
-                t->beamTarget = enemies[target].id;
-                float dps = cfg->damage * damageMult;
-                if (mods) {
-                    if (enemies[target].type == ENEMY_TANK) dps *= mods->tankDamageMultiplier;
-                    else if (enemies[target].type == ENEMY_FAST) dps *= mods->fastDamageMultiplier;
-                }
-                float goldMult = (mods) ? mods->goldPerKillMultiplier : 1.0f;
-                bool goldRush = (mods) ? mods->goldRushActive : false;
-
-                enemies[target].hp -= dps * dt;
-                if (enemies[target].hp <= 0.0f) {
-                    enemies[target].active = false;
-                    int goldEarned = (int)(gs->goldPerKill * goldMult);
-                    if (goldRush) goldEarned *= 2;
-                    gs->playerGold[t->ownerPlayer] += goldEarned;
-                    gs->gold = gs->playerGold[0];
-                    t->beamTarget = ENTITY_ID_NONE;
-                }
-            } else {
-                t->beamTarget = ENTITY_ID_NONE;
-            }
-            continue;
-        }
-
-        // --- Tesla: instant chain lightning ---
-        if (cfg->chainCount > 0) {
-            t->cooldownTimer -= dt;
-            if (t->cooldownTimer > 0.0f) continue;
-
-            int target = TowerFindTarget(t, enemies, maxEnemies, map, mods);
-            if (target < 0) continue;
-
-            t->cooldownTimer = 1.0f / (cfg->fireRate * fireRateMult);
-
-            float damage = cfg->damage;
-            // Overcharge
-            if (mods && mods->overcharge && t->cooldownReady) {
-                damage *= 1.4f;
-                t->cooldownReady = false;
-            }
-
-            // Hit primary target
-            ApplyDamageAndSlow(&enemies[target], damage, cfg->slowFactor, cfg->slowDuration,
-                              t->ownerPlayer, gs, mods);
-
-            // Chain to nearby enemies
-            bool hit[MAX_ENEMIES] = {false};
-            hit[target] = true;
-            Vector3 lastPos = enemies[target].worldPos;
-            int chains = cfg->chainCount;
-            for (int c = 0; c < chains; c++) {
-                int next = TeslaFindChainTarget(enemies, maxEnemies, lastPos, 2.0f, hit, -1);
-                if (next < 0) break;
-                hit[next] = true;
-                float chainDmg = damage * 0.7f; // 70% damage per chain
-                ApplyDamageAndSlow(&enemies[next], chainDmg, cfg->slowFactor, cfg->slowDuration,
-                                  t->ownerPlayer, gs, mods);
-                lastPos = enemies[next].worldPos;
-            }
-            t->cooldownReady = true;
-            continue;
-        }
-
-        // --- Flame: cone attack with burn DoT ---
-        if (cfg->burnDPS > 0.0f) {
-            t->cooldownTimer -= dt;
-            if (t->cooldownTimer > 0.0f) continue;
-
-            int target = TowerFindTarget(t, enemies, maxEnemies, map, mods);
-            if (target < 0) continue;
-
-            t->cooldownTimer = 1.0f / (cfg->fireRate * fireRateMult);
-
-            float damage = cfg->damage;
-            if (mods && mods->overcharge && t->cooldownReady) {
-                damage *= 1.4f;
-                t->cooldownReady = false;
-            }
-
-            // Direction to primary target
-            Vector3 dir = Vector3Subtract(enemies[target].worldPos, t->worldPos);
-            dir.y = 0.0f;
-            float dirLen = Vector3Length(dir);
-            if (dirLen < 0.01f) continue;
-            dir = Vector3Scale(dir, 1.0f / dirLen);
-
-            float rangeMult = (mods) ? mods->rangeMultiplier : 1.0f;
-            float effectiveRange = cfg->range * rangeMult;
-            float coneAngle = 30.0f * DEG2RAD; // 60 degree cone = 30 degrees each side
-
-            // Hit all enemies in cone
-            for (int j = 0; j < maxEnemies; j++) {
-                if (!enemies[j].active) continue;
-                float dist = Vector3Distance(t->worldPos, enemies[j].worldPos);
-                if (dist > effectiveRange) continue;
-
-                Vector3 toEnemy = Vector3Subtract(enemies[j].worldPos, t->worldPos);
-                toEnemy.y = 0.0f;
-                float toLen = Vector3Length(toEnemy);
-                if (toLen < 0.01f) continue;
-                toEnemy = Vector3Scale(toEnemy, 1.0f / toLen);
-
-                float dot = dir.x * toEnemy.x + dir.z * toEnemy.z;
-                if (dot >= cosf(coneAngle)) {
-                    ApplyDamageAndSlow(&enemies[j], damage, cfg->slowFactor, cfg->slowDuration,
-                                      t->ownerPlayer, gs, mods);
-                    // Apply burn DoT
-                    enemies[j].burnDPS = cfg->burnDPS * damageMult;
-                    enemies[j].burnTimer = cfg->burnDuration;
-                }
-            }
-            t->cooldownReady = true;
-            continue;
-        }
-
-        // --- Standard projectile towers (Cannon, MG, Sniper, Mortar) ---
-        t->cooldownTimer -= dt;
-        if (t->cooldownTimer > 0.0f) continue;
-
-        int target = TowerFindTarget(t, enemies, maxEnemies, map, mods);
-        if (target < 0) continue;
-
-        t->cooldownTimer = 1.0f / (cfg->fireRate * fireRateMult);
-        Vector3 origin = t->worldPos;
-        origin.y += 0.3f;
-
-        float damage = cfg->damage;
-        // Overcharge: first shot after cooldown does +40% damage
-        if (mods && mods->overcharge && t->cooldownReady) {
-            damage *= 1.4f;
-            t->cooldownReady = false;
-        }
-
-        float aoe = cfg->aoeRadius + aoeBonus;
-
-        if (t->type == TOWER_MORTAR) {
-            // Mortar: spawn arcing projectile to fixed position
-            ProjectileSpawn(projectiles, maxProjectiles, origin, enemies[target].id,
-                           damage, cfg->projectileSpeed,
-                           cfg->slowFactor, cfg->slowDuration, aoe, cfg->color,
-                           t->ownerPlayer, gs);
-            // Mark latest projectile as arcing
-            for (int p = 0; p < maxProjectiles; p++) {
-                if (projectiles[p].active && projectiles[p].targetEnemyID == enemies[target].id &&
-                    Vector3Distance(projectiles[p].position, origin) < 0.5f) {
-                    projectiles[p].isArcing = true;
-                    projectiles[p].targetPos = enemies[target].worldPos;
-                    projectiles[p].startPos = origin;
-                    projectiles[p].arcProgress = 0.0f;
-                    break;
-                }
-            }
-        } else {
-            // Sniper pierce setup
-            int pierce = 0;
-            if (t->type == TOWER_SNIPER && mods && mods->sniperPierce)
-                pierce = 2;
-
-            ProjectileSpawn(projectiles, maxProjectiles, origin, enemies[target].id,
-                           damage, cfg->projectileSpeed,
-                           cfg->slowFactor, cfg->slowDuration, aoe, cfg->color,
-                           t->ownerPlayer, gs);
-            // Set pierce on the spawned projectile
-            if (pierce > 0) {
-                for (int p = 0; p < maxProjectiles; p++) {
-                    if (projectiles[p].active && projectiles[p].targetEnemyID == enemies[target].id &&
-                        Vector3Distance(projectiles[p].position, origin) < 0.5f) {
-                        projectiles[p].pierceRemaining = pierce;
-                        break;
-                    }
-                }
-            }
-        }
-        t->cooldownReady = true;
+        beh->fire(t, cfg, enemies, maxEnemies, projectiles, maxProjectiles, gs, map, mods, dt);
     }
 }
 
@@ -565,18 +636,10 @@ void TowersDraw(const Tower towers[], int maxTowers, int playerCount,
             DrawCubeWiresV(t->worldPos, (Vector3){ 0.72f, 0.72f, 0.72f }, BLACK);
         }
 
-        // Laser beam rendering
-        if (cfg->isBeam && t->beamTarget != ENTITY_ID_NONE) {
-            Enemy *target = EnemyFindByID((Enemy *)enemies, maxEnemies, t->beamTarget);
-            if (target) {
-                Vector3 beamStart = t->worldPos;
-                beamStart.y += 0.3f;
-                DrawLine3D(beamStart, target->worldPos, cfg->color);
-                // Draw a thicker beam effect
-                Vector3 offset = {0.02f, 0.02f, 0.0f};
-                DrawLine3D(Vector3Add(beamStart, offset), Vector3Add(target->worldPos, offset), cfg->color);
-            }
-        }
+        // Draw special effects via behavior registry
+        const TowerBehavior *beh = &TOWER_BEHAVIORS[t->type];
+        if (beh->drawEffect)
+            beh->drawEffect(t, cfg, enemies, maxEnemies);
     }
 }
 
