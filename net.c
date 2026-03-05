@@ -83,6 +83,9 @@ void NetContextInit(NetContext *ctx)
     memset(ctx, 0, sizeof(*ctx));
     ctx->mode = NET_MODE_NONE;
     ctx->discoverySocket = -1;
+    ctx->perkResult = -2; // pending
+    for (int i = 0; i < NET_MAX_PLAYERS; i++)
+        ctx->perkVotes[i] = 255; // no vote
 }
 
 void NetContextDestroy(NetContext *ctx)
@@ -216,6 +219,7 @@ static void HostHandleAction(NetContext *ctx, ENetPeer *peer, const uint8_t *dat
         int cost = TOWER_CONFIGS[act->towerType][0].cost;
 
         if (act->towerType < TOWER_TYPE_COUNT &&
+            ctx->playerTowerUnlocked[playerIdx][act->towerType] &&
             MapCanPlaceTower(map, pos) &&
             gs->playerGold[playerIdx] >= cost) {
 
@@ -291,6 +295,26 @@ static void HostHandleAction(NetContext *ctx, ENetPeer *peer, const uint8_t *dat
         // Also show on host
         if (g_netChatCallback)
             g_netChatCallback(chat->playerIndex, ctx->playerNames[chat->playerIndex], chat->message);
+        break;
+    }
+    case MSG_PLAYER_UNLOCKS: {
+        if (size < sizeof(PlayerUnlocksMsg)) return;
+        const PlayerUnlocksMsg *msg = (const PlayerUnlocksMsg *)data;
+        for (int i = 0; i < 8; i++)
+            ctx->playerTowerUnlocked[playerIdx][i] = msg->towerUnlocked[i];
+        for (int i = 0; i < ABILITY_COUNT; i++)
+            ctx->playerAbilityUnlocked[playerIdx][i] = msg->abilityUnlocked[i];
+        break;
+    }
+    case MSG_PERK_VOTE: {
+        if (size < sizeof(PerkVoteMsg)) return;
+        const PerkVoteMsg *msg = (const PerkVoteMsg *)data;
+        if (ctx->perkVotingActive && ctx->perkVotes[playerIdx] == 255) {
+            uint8_t choice = msg->choice;
+            if (choice > 2 && choice != 255) choice = 255;
+            ctx->perkVotes[playerIdx] = choice;
+            ctx->perkVoteCount++;
+        }
         break;
     }
     default:
@@ -527,6 +551,25 @@ static void ClientHandlePacket(NetContext *ctx, const uint8_t *data, size_t size
             g_netChatCallback(chat->playerIndex, ctx->playerNames[chat->playerIndex], chat->message);
         break;
     }
+    case MSG_PERK_OFFERED: {
+        if (size < sizeof(PerkOfferedMsg)) return;
+        const PerkOfferedMsg *msg = (const PerkOfferedMsg *)data;
+        ctx->perkVotingActive = true;
+        ctx->perkResult = -2;
+        ctx->perkVoteCount = 0;
+        for (int i = 0; i < 3; i++)
+            ctx->perkOfferedIDs[i] = msg->perkIDs[i];
+        for (int i = 0; i < NET_MAX_PLAYERS; i++)
+            ctx->perkVotes[i] = 255;
+        break;
+    }
+    case MSG_PERK_RESULT: {
+        if (size < sizeof(PerkResultMsg)) return;
+        const PerkResultMsg *msg = (const PerkResultMsg *)data;
+        ctx->perkResult = msg->perkID;
+        ctx->perkVotingActive = false;
+        break;
+    }
     default:
         break;
     }
@@ -685,6 +728,77 @@ void NetBroadcastLobbyState(NetContext *ctx)
     memset(lm.selectedMap, 0, sizeof(lm.selectedMap));
     strncpy(lm.selectedMap, ctx->selectedMap, MAX_MAP_NAME - 1);
     NetBroadcastReliable(ctx, &lm, sizeof(lm));
+}
+
+// --- Per-Player Unlocks & Perk Voting ---
+
+void NetSendPlayerUnlocks(NetContext *ctx, const struct RunModifiers *mods)
+{
+    PlayerUnlocksMsg msg;
+    PacketHeaderInit(&msg.header, MSG_PLAYER_UNLOCKS, sizeof(msg));
+    for (int i = 0; i < 8; i++)
+        msg.towerUnlocked[i] = mods->towerUnlocked[i] ? 1 : 0;
+    for (int i = 0; i < ABILITY_COUNT; i++)
+        msg.abilityUnlocked[i] = mods->abilityUnlocked[i] ? 1 : 0;
+
+    if (ctx->mode == NET_MODE_CLIENT && ctx->serverPeer) {
+        NetSendReliable(ctx->serverPeer, &msg, sizeof(msg));
+    } else if (ctx->mode == NET_MODE_HOST) {
+        // Host populates its own slot directly
+        for (int i = 0; i < 8; i++)
+            ctx->playerTowerUnlocked[0][i] = mods->towerUnlocked[i];
+        for (int i = 0; i < ABILITY_COUNT; i++)
+            ctx->playerAbilityUnlocked[0][i] = mods->abilityUnlocked[i];
+    }
+}
+
+void NetSendPerkOffered(NetContext *ctx, const int8_t perkIDs[3])
+{
+    if (ctx->mode != NET_MODE_HOST) return;
+
+    PerkOfferedMsg msg;
+    PacketHeaderInit(&msg.header, MSG_PERK_OFFERED, sizeof(msg));
+    for (int i = 0; i < 3; i++)
+        msg.perkIDs[i] = perkIDs[i];
+
+    // Set host state
+    ctx->perkVotingActive = true;
+    ctx->perkResult = -2;
+    ctx->perkVoteCount = 0;
+    for (int i = 0; i < 3; i++)
+        ctx->perkOfferedIDs[i] = perkIDs[i];
+    for (int i = 0; i < NET_MAX_PLAYERS; i++)
+        ctx->perkVotes[i] = 255;
+
+    NetBroadcastReliable(ctx, &msg, sizeof(msg));
+}
+
+void NetSendPerkVote(NetContext *ctx, uint8_t choice)
+{
+    if (ctx->mode == NET_MODE_CLIENT && ctx->serverPeer) {
+        PerkVoteMsg msg;
+        PacketHeaderInit(&msg.header, MSG_PERK_VOTE, sizeof(msg));
+        msg.choice = choice;
+        NetSendReliable(ctx->serverPeer, &msg, sizeof(msg));
+    } else if (ctx->mode == NET_MODE_HOST) {
+        // Host votes locally
+        if (ctx->perkVotingActive && ctx->perkVotes[0] == 255) {
+            ctx->perkVotes[0] = (choice > 2 && choice != 255) ? 255 : choice;
+            ctx->perkVoteCount++;
+        }
+    }
+}
+
+void NetSendPerkResult(NetContext *ctx, int8_t perkID)
+{
+    if (ctx->mode != NET_MODE_HOST) return;
+
+    PerkResultMsg msg;
+    PacketHeaderInit(&msg.header, MSG_PERK_RESULT, sizeof(msg));
+    msg.perkID = perkID;
+    ctx->perkResult = perkID;
+    ctx->perkVotingActive = false;
+    NetBroadcastReliable(ctx, &msg, sizeof(msg));
 }
 
 // --- Snapshot ---

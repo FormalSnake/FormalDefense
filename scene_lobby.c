@@ -36,29 +36,27 @@ static void LobbySceneDraw(Scene *scene, void *ctx)
 
     // Check if game should start
     if (LobbyGameStarted(&app->lobbyState, &app->netCtx)) {
+        // Load the map now (persists through shop/perk screens)
         if (app->netCtx.mode == NET_MODE_HOST) {
             if (!MapLoad(&app->map, app->netCtx.selectedMapPath))
                 MapInit(&app->map);
             NetSendMapData(&app->netCtx, &app->map);
-            GameStateInitMultiplayer(&app->gs, app->netCtx.playerCount,
-                                    (Difficulty)app->netCtx.selectedDifficulty, &app->runMods);
         } else {
             char localPath[256];
             snprintf(localPath, sizeof(localPath), "maps/%s.fdmap", app->netCtx.selectedMap);
             if (!MapLoad(&app->map, localPath))
                 MapInit(&app->map);
-            GameStateInitMultiplayer(&app->gs, app->netCtx.playerCount,
-                                    (Difficulty)app->netCtx.selectedDifficulty, &app->runMods);
         }
         MapBuildMesh(&app->gameMapMesh, &app->map, app->ps1Shader);
-        memset(app->enemies, 0, sizeof(app->enemies));
-        memset(app->towers, 0, sizeof(app->towers));
-        memset(app->projectiles, 0, sizeof(app->projectiles));
-        CameraControllerInit(&g_camCtrl);
-        CameraControllerUpdate(&g_camCtrl, &app->camera, 0.0f);
-        app->selectedTowerType = -1;
-        app->selectedTowerIdx = -1;
-        SceneManagerTransition(app->sceneManager, SCENE_GAME);
+
+        // Each player inits RunModifiers from their own local profile
+        RunModifiersInit(&app->runMods, &app->profile);
+
+        // Send per-player unlocks to host
+        NetSendPlayerUnlocks(&app->netCtx, &app->runMods);
+
+        // Go to shop (each player sees their own crystal shop)
+        SceneManagerTransition(app->sceneManager, SCENE_SHOP);
     }
 }
 

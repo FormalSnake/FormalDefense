@@ -79,14 +79,39 @@ static void ShopDraw(Scene *scene, void *ctx)
 
     EndDrawing();
 
+    bool isMultiplayer = (app->netCtx.mode != NET_MODE_NONE);
+
     if (contBtn.clicked) {
         RunModifiersInit(&app->runMods, &app->profile);
-        app->perkSeed = (unsigned int)(GetTime() * 1000.0);
-        PerkSelectRandom(app->perkOffered, app->perkSeed);
-        SceneManagerTransition(app->sceneManager, SCENE_PERK_SELECT);
+
+        if (isMultiplayer) {
+            // Send updated unlocks (player may have bought new towers)
+            NetSendPlayerUnlocks(&app->netCtx, &app->runMods);
+
+            if (app->netCtx.mode == NET_MODE_HOST) {
+                // Host generates perk options and broadcasts
+                app->perkSeed = (unsigned int)(GetTime() * 1000.0);
+                PerkSelectRandom(app->perkOffered, app->perkSeed);
+                int8_t perkIDs[3];
+                for (int i = 0; i < 3; i++)
+                    perkIDs[i] = (int8_t)app->perkOffered[i];
+                NetSendPerkOffered(&app->netCtx, perkIDs);
+            }
+            // Both host and client go to perk voting screen
+            SceneManagerTransition(app->sceneManager, SCENE_PERK_SELECT);
+        } else {
+            app->perkSeed = (unsigned int)(GetTime() * 1000.0);
+            PerkSelectRandom(app->perkOffered, app->perkSeed);
+            SceneManagerTransition(app->sceneManager, SCENE_PERK_SELECT);
+        }
     }
     if (backBtn.clicked || IsKeyPressed(KEY_ESCAPE)) {
-        SceneManagerTransition(app->sceneManager, SCENE_DIFFICULTY_SELECT);
+        if (isMultiplayer) {
+            // In multiplayer, back goes to lobby (can't go back to difficulty)
+            SceneManagerTransition(app->sceneManager, SCENE_LOBBY);
+        } else {
+            SceneManagerTransition(app->sceneManager, SCENE_DIFFICULTY_SELECT);
+        }
     }
 }
 

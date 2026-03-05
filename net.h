@@ -6,6 +6,7 @@
 #include "entity.h"
 #include "game.h"
 #include "map.h"
+#include "progress.h"
 
 // ENet forward declarations
 typedef struct _ENetHost ENetHost;
@@ -60,6 +61,11 @@ typedef enum {
     MSG_CHAT,
     // Map data
     MSG_MAP_DATA,
+    // Per-player unlocks & perk voting
+    MSG_PLAYER_UNLOCKS,
+    MSG_PERK_OFFERED,
+    MSG_PERK_VOTE,
+    MSG_PERK_RESULT,
 } MessageType;
 
 // --- Packet Header ---
@@ -229,6 +235,29 @@ typedef struct {
     char message[NET_MAX_CHAT_MSG];
 } ChatMsg;
 
+// --- Per-Player Unlock Messages ---
+
+typedef struct {
+    PacketHeader header;
+    uint8_t towerUnlocked[8];
+    uint8_t abilityUnlocked[ABILITY_COUNT];
+} PlayerUnlocksMsg;
+
+typedef struct {
+    PacketHeader header;
+    int8_t perkIDs[3];
+} PerkOfferedMsg;
+
+typedef struct {
+    PacketHeader header;
+    uint8_t choice; // 0-2 = perk index, 255 = skip
+} PerkVoteMsg;
+
+typedef struct {
+    PacketHeader header;
+    int8_t perkID; // PerkID or -1 for none
+} PerkResultMsg;
+
 #pragma pack(pop)
 
 // --- Net Context ---
@@ -252,6 +281,17 @@ typedef struct {
     char selectedMap[MAX_MAP_NAME];
     char selectedMapPath[256];
     uint8_t selectedDifficulty;
+
+    // Per-player unlocks (host stores all; clients only use local)
+    bool playerTowerUnlocked[NET_MAX_PLAYERS][8];
+    bool playerAbilityUnlocked[NET_MAX_PLAYERS][ABILITY_COUNT];
+
+    // Perk voting state
+    bool perkVotingActive;
+    int8_t perkOfferedIDs[3];
+    uint8_t perkVotes[NET_MAX_PLAYERS]; // 0-2 = perk index, 255 = no vote yet
+    uint8_t perkVoteCount;
+    int8_t perkResult; // -2 = pending, -1 = skip, 0+ = perkID
 
     // Discovery (UDP)
     int discoverySocket;
@@ -287,6 +327,12 @@ void NetBroadcastLobbyState(NetContext *ctx);
 
 void NetBroadcastSnapshot(NetContext *ctx, GameState *gs, Enemy enemies[],
                           Tower towers[], Projectile projectiles[]);
+
+// Per-player unlocks & perk voting
+void NetSendPlayerUnlocks(NetContext *ctx, const struct RunModifiers *mods);
+void NetSendPerkOffered(NetContext *ctx, const int8_t perkIDs[3]);
+void NetSendPerkVote(NetContext *ctx, uint8_t choice);
+void NetSendPerkResult(NetContext *ctx, int8_t perkID);
 
 // Discovery
 void NetDiscoveryStart(NetContext *ctx);
