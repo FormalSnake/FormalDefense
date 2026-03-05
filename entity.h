@@ -14,6 +14,9 @@
 // Forward declare GameState
 typedef struct GameState GameState;
 
+// Forward declare RunModifiers
+typedef struct RunModifiers RunModifiers;
+
 // --- Entity ID ---
 
 typedef uint16_t EntityID;
@@ -65,6 +68,9 @@ typedef struct {
     float slowFactor;
     float radius;
     Color color;
+    // Flame burn DoT
+    float burnTimer;
+    float burnDPS;
 } Enemy;
 
 extern const EnemyConfig ENEMY_CONFIGS[ENEMY_TYPE_COUNT];
@@ -89,6 +95,12 @@ typedef struct {
     float aoeRadius;
     Color color;
     uint8_t ownerPlayer;
+    int pierceRemaining;
+    // Mortar arcing
+    bool isArcing;
+    Vector3 targetPos;
+    float arcProgress;
+    Vector3 startPos;
 } Projectile;
 
 void ProjectileSpawn(Projectile projectiles[], int maxProjectiles,
@@ -96,7 +108,8 @@ void ProjectileSpawn(Projectile projectiles[], int maxProjectiles,
                      float slowFactor, float slowDuration, float aoeRadius, Color color,
                      uint8_t ownerPlayer, GameState *gs);
 void ProjectilesUpdate(Projectile projectiles[], int maxProjectiles,
-                       Enemy enemies[], int maxEnemies, GameState *gs, float dt);
+                       Enemy enemies[], int maxEnemies, GameState *gs,
+                       RunModifiers *mods, float dt);
 void ProjectilesDraw(const Projectile projectiles[], int maxProjectiles, Model sphereModel);
 
 // --- Tower ---
@@ -106,6 +119,10 @@ typedef enum {
     TOWER_MACHINEGUN,
     TOWER_SNIPER,
     TOWER_SLOW,
+    TOWER_LASER,
+    TOWER_MORTAR,
+    TOWER_TESLA,
+    TOWER_FLAME,
     TOWER_TYPE_COUNT,
 } TowerType;
 
@@ -121,6 +138,11 @@ typedef struct {
     float aoeRadius;
     int cost;
     Color color;
+    // New tower mechanics
+    bool isBeam;        // Laser: continuous beam
+    int chainCount;     // Tesla: chain lightning count
+    float burnDPS;      // Flame: burn damage per second
+    float burnDuration; // Flame: burn duration
 } TowerConfig;
 
 typedef struct {
@@ -132,6 +154,10 @@ typedef struct {
     Vector3 worldPos;
     float cooldownTimer;
     uint8_t ownerPlayer;
+    // Laser beam target
+    EntityID beamTarget;
+    // Overcharge: track if first shot after cooldown
+    bool cooldownReady;
 } Tower;
 
 extern const TowerConfig TOWER_CONFIGS[TOWER_TYPE_COUNT][TOWER_MAX_LEVEL];
@@ -141,8 +167,9 @@ void TowerPlace(Tower towers[], int maxTowers, TowerType type, GridPos pos,
                 uint8_t ownerPlayer, GameState *gs, const Map *map);
 void TowersUpdate(Tower towers[], int maxTowers, Enemy enemies[], int maxEnemies,
                   Projectile projectiles[], int maxProjectiles, GameState *gs,
-                  const Map *map, float dt);
-void TowersDraw(const Tower towers[], int maxTowers, int playerCount);
+                  const Map *map, RunModifiers *mods, float dt);
+void TowersDraw(const Tower towers[], int maxTowers, int playerCount,
+                const Enemy enemies[], int maxEnemies);
 Tower *TowerFindByID(Tower towers[], int maxTowers, EntityID id);
 
 #endif

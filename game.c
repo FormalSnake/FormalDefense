@@ -1,5 +1,6 @@
 #include "game.h"
 #include "entity.h"
+#include "progress.h"
 
 // --- Difficulty Configs ---
 
@@ -34,57 +35,46 @@ const DifficultyConfig DIFFICULTY_CONFIGS[DIFFICULTY_COUNT] = {
 
 const WaveConfig WAVE_CONFIGS[MAX_WAVES] = {
     // Act 1: Introduction (1-6)
-    // Wave 1: 5 basic
     { .groups = {{ ENEMY_BASIC, 5 }}, .groupCount = 1, .spawnInterval = 1.5f, .bonusGold = 30 },
-    // Wave 2: 8 basic
     { .groups = {{ ENEMY_BASIC, 8 }}, .groupCount = 1, .spawnInterval = 1.2f, .bonusGold = 35 },
-    // Wave 3: 5 basic + 3 fast
     { .groups = {{ ENEMY_BASIC, 5 }, { ENEMY_FAST, 3 }}, .groupCount = 2, .spawnInterval = 1.0f, .bonusGold = 40 },
-    // Wave 4: 10 fast
     { .groups = {{ ENEMY_FAST, 10 }}, .groupCount = 1, .spawnInterval = 0.8f, .bonusGold = 45 },
-    // Wave 5: 6 basic + 2 tank
     { .groups = {{ ENEMY_BASIC, 6 }, { ENEMY_TANK, 2 }}, .groupCount = 2, .spawnInterval = 1.2f, .bonusGold = 55 },
-    // Wave 6: breather — 4 basic
     { .groups = {{ ENEMY_BASIC, 4 }}, .groupCount = 1, .spawnInterval = 1.5f, .bonusGold = 60 },
 
     // Act 2: Escalation (7-14)
-    // Wave 7: 8 fast + 3 tank
     { .groups = {{ ENEMY_FAST, 8 }, { ENEMY_TANK, 3 }}, .groupCount = 2, .spawnInterval = 1.0f, .bonusGold = 70 },
-    // Wave 8: 12 basic + 5 fast
     { .groups = {{ ENEMY_BASIC, 12 }, { ENEMY_FAST, 5 }}, .groupCount = 2, .spawnInterval = 0.8f, .bonusGold = 80 },
-    // Wave 9: 5 tank + 8 fast
     { .groups = {{ ENEMY_TANK, 5 }, { ENEMY_FAST, 8 }}, .groupCount = 2, .spawnInterval = 0.9f, .bonusGold = 90 },
-    // Wave 10: 10 basic + 8 fast + 3 tank
     { .groups = {{ ENEMY_BASIC, 10 }, { ENEMY_FAST, 8 }, { ENEMY_TANK, 3 }}, .groupCount = 3, .spawnInterval = 0.7f, .bonusGold = 100 },
-    // Wave 11: breather — 6 basic + 2 fast
     { .groups = {{ ENEMY_BASIC, 6 }, { ENEMY_FAST, 2 }}, .groupCount = 2, .spawnInterval = 1.2f, .bonusGold = 80 },
-    // Wave 12: fast rush — 20 fast
     { .groups = {{ ENEMY_FAST, 20 }}, .groupCount = 1, .spawnInterval = 0.5f, .bonusGold = 110 },
-    // Wave 13: 6 tank + 10 basic
     { .groups = {{ ENEMY_TANK, 6 }, { ENEMY_BASIC, 10 }}, .groupCount = 2, .spawnInterval = 0.8f, .bonusGold = 120 },
-    // Wave 14: breather — 8 basic
     { .groups = {{ ENEMY_BASIC, 8 }}, .groupCount = 1, .spawnInterval = 1.0f, .bonusGold = 100 },
 
     // Act 3: Endgame (15-20)
-    // Wave 15: 8 tank + 6 fast
     { .groups = {{ ENEMY_TANK, 8 }, { ENEMY_FAST, 6 }}, .groupCount = 2, .spawnInterval = 0.7f, .bonusGold = 140 },
-    // Wave 16: speed blitz — 25 fast
     { .groups = {{ ENEMY_FAST, 25 }}, .groupCount = 1, .spawnInterval = 0.4f, .bonusGold = 150 },
-    // Wave 17: 12 basic + 10 fast + 5 tank
     { .groups = {{ ENEMY_BASIC, 12 }, { ENEMY_FAST, 10 }, { ENEMY_TANK, 5 }}, .groupCount = 3, .spawnInterval = 0.6f, .bonusGold = 160 },
-    // Wave 18: heavy tanks — 10 tank + 4 basic
     { .groups = {{ ENEMY_TANK, 10 }, { ENEMY_BASIC, 4 }}, .groupCount = 2, .spawnInterval = 0.8f, .bonusGold = 170 },
-    // Wave 19: massive mixed — 15 basic + 12 fast + 6 tank
     { .groups = {{ ENEMY_BASIC, 15 }, { ENEMY_FAST, 12 }, { ENEMY_TANK, 6 }}, .groupCount = 3, .spawnInterval = 0.5f, .bonusGold = 180 },
-    // Wave 20: final onslaught — 10 fast + 8 tank + 15 basic
     { .groups = {{ ENEMY_FAST, 10 }, { ENEMY_TANK, 8 }, { ENEMY_BASIC, 15 }, { ENEMY_FAST, 8 }}, .groupCount = 4, .spawnInterval = 0.4f, .bonusGold = 250 },
 };
 
-void GameStateInit(GameState *gs, Difficulty difficulty)
+void GameStateInit(GameState *gs, Difficulty difficulty, RunModifiers *mods)
 {
     const DifficultyConfig *dc = &DIFFICULTY_CONFIGS[difficulty];
-    gs->gold = dc->startingGold;
-    gs->lives = dc->startingLives;
+    int startGold = dc->startingGold;
+    int startLives = dc->startingLives;
+
+    if (mods) {
+        startGold += mods->bonusStartingGold;
+        startLives += mods->bonusStartingLives;
+    }
+
+    gs->gold = startGold;
+    gs->lives = startLives;
+    gs->maxLives = startLives;
     gs->currentWave = 0;
     gs->phase = PHASE_WAVE_COUNTDOWN;
     gs->waveCountdown = 5.0f;
@@ -97,6 +87,7 @@ void GameStateInit(GameState *gs, Difficulty difficulty)
 
     gs->difficulty = difficulty;
     gs->speedMultiplier = dc->speedMultiplier;
+    gs->greedSpeedMult = (mods) ? mods->greedSpeedMultiplier : 1.0f;
 
     // Multiplayer defaults (single-player compatible)
     gs->playerCount = 1;
@@ -105,20 +96,27 @@ void GameStateInit(GameState *gs, Difficulty difficulty)
     gs->goldPerKill = (int)(10 * dc->goldMultiplier);
     gs->nextEntitySeq = 1;
     for (int i = 0; i < 4; i++) gs->playerGold[i] = 0;
-    gs->playerGold[0] = dc->startingGold;
+    gs->playerGold[0] = startGold;
+
+    gs->endlessActive = false;
+    gs->endlessWave = 0;
 }
 
-void GameStateInitMultiplayer(GameState *gs, int playerCount, Difficulty difficulty)
+void GameStateInitMultiplayer(GameState *gs, int playerCount, Difficulty difficulty, RunModifiers *mods)
 {
-    GameStateInit(gs, difficulty);
+    GameStateInit(gs, difficulty, mods);
     const DifficultyConfig *dc = &DIFFICULTY_CONFIGS[difficulty];
+    int startGold = dc->startingGold;
+    if (mods) startGold += mods->bonusStartingGold;
+
     gs->playerCount = playerCount;
     gs->hpMultiplier = dc->hpMultiplier * (1.0f + 0.5f * (playerCount - 1));
     gs->countMultiplier = dc->countMultiplier * (1.0f + 0.3f * (playerCount - 1));
     gs->goldPerKill = (int)(10 * dc->goldMultiplier) / playerCount;
     if (gs->goldPerKill < 3) gs->goldPerKill = 3;
-    gs->lives = dc->startingLives + 5 * (playerCount - 1);
-    for (int i = 0; i < playerCount; i++) gs->playerGold[i] = dc->startingGold;
+    gs->lives = gs->maxLives + 5 * (playerCount - 1);
+    gs->maxLives = gs->lives;
+    for (int i = 0; i < playerCount; i++) gs->playerGold[i] = startGold;
 }
 
 bool GameAllEnemiesDead(const void *enemiesVoid, int maxEnemies)
@@ -130,12 +128,19 @@ bool GameAllEnemiesDead(const void *enemiesVoid, int maxEnemies)
     return true;
 }
 
-void GameUpdateWave(GameState *gs, void *enemiesVoid, int maxEnemies, const Map *map, float dt)
+void GameUpdateWave(GameState *gs, void *enemiesVoid, int maxEnemies, const Map *map,
+                    RunModifiers *mods, float dt)
 {
     Enemy *enemies = (Enemy *)enemiesVoid;
     const DifficultyConfig *dc = &DIFFICULTY_CONFIGS[gs->difficulty];
 
-    if (gs->phase == PHASE_OVER) return;
+    if (gs->phase == PHASE_OVER || gs->phase == PHASE_VICTORY) return;
+
+    // Second wind check
+    if (gs->lives <= 0 && mods && mods->secondWind && !mods->secondWindUsed) {
+        mods->secondWindUsed = true;
+        gs->lives = 5;
+    }
 
     // Wave countdown phase
     if (gs->phase == PHASE_WAVE_COUNTDOWN) {
@@ -148,8 +153,17 @@ void GameUpdateWave(GameState *gs, void *enemiesVoid, int maxEnemies, const Map 
             gs->spawnedInGroup = 0;
             gs->totalSpawned = 0;
 
+            // Get wave config (normal or endless)
+            const WaveConfig *wc;
+            WaveConfig endlessWave;
+            if (gs->endlessActive && gs->currentWave >= MAX_WAVES) {
+                EndlessGenerateWave(&endlessWave, gs->endlessWave);
+                wc = &endlessWave;
+            } else {
+                wc = &WAVE_CONFIGS[gs->currentWave];
+            }
+
             // Count total enemies in this wave (with count multiplier)
-            const WaveConfig *wc = &WAVE_CONFIGS[gs->currentWave];
             gs->totalToSpawn = 0;
             for (int g = 0; g < wc->groupCount; g++) {
                 int scaledCount = (int)(wc->groups[g].count * gs->countMultiplier);
@@ -162,7 +176,15 @@ void GameUpdateWave(GameState *gs, void *enemiesVoid, int maxEnemies, const Map 
 
     if (gs->phase != PHASE_PLAYING) return;
 
-    const WaveConfig *wc = &WAVE_CONFIGS[gs->currentWave];
+    // Get wave config
+    const WaveConfig *wc;
+    WaveConfig endlessWave;
+    if (gs->endlessActive && gs->currentWave >= MAX_WAVES) {
+        EndlessGenerateWave(&endlessWave, gs->endlessWave);
+        wc = &endlessWave;
+    } else {
+        wc = &WAVE_CONFIGS[gs->currentWave];
+    }
 
     // Spawn enemies
     if (gs->waveActive && gs->currentGroup < wc->groupCount) {
@@ -173,6 +195,19 @@ void GameUpdateWave(GameState *gs, void *enemiesVoid, int maxEnemies, const Map 
             if (scaledCount < 1) scaledCount = 1;
 
             EnemySpawn(enemies, maxEnemies, (EnemyType)grp->enemyType, map, gs);
+
+            // Apply greed speed multiplier to spawned enemy
+            if (gs->greedSpeedMult > 1.0f) {
+                for (int i = 0; i < maxEnemies; i++) {
+                    if (enemies[i].active && enemies[i].waypointIndex == 0 &&
+                        enemies[i].pathProgress == 0.0f) {
+                        enemies[i].speed *= gs->greedSpeedMult;
+                        enemies[i].baseSpeed *= gs->greedSpeedMult;
+                        break;
+                    }
+                }
+            }
+
             gs->spawnedInGroup++;
             gs->totalSpawned++;
             gs->spawnTimer = wc->spawnInterval * dc->spawnIntervalScale;
@@ -191,8 +226,9 @@ void GameUpdateWave(GameState *gs, void *enemiesVoid, int maxEnemies, const Map 
     // Check wave complete
     if (!gs->waveActive && gs->totalSpawned >= gs->totalToSpawn &&
         GameAllEnemiesDead(enemies, maxEnemies)) {
-        // Split bonus gold among players (with gold multiplier)
-        int bonusPerPlayer = (int)(wc->bonusGold * dc->goldMultiplier) / gs->playerCount;
+        // Split bonus gold among players (with gold multiplier + wave bonus multiplier)
+        float waveBonusMult = (mods) ? mods->waveBonusMultiplier : 1.0f;
+        int bonusPerPlayer = (int)(wc->bonusGold * dc->goldMultiplier * waveBonusMult) / gs->playerCount;
         for (int i = 0; i < gs->playerCount; i++)
             gs->playerGold[i] += bonusPerPlayer;
         // Keep legacy gold in sync for single-player HUD
@@ -200,8 +236,12 @@ void GameUpdateWave(GameState *gs, void *enemiesVoid, int maxEnemies, const Map 
 
         gs->currentWave++;
 
-        if (gs->currentWave >= MAX_WAVES) {
-            gs->phase = PHASE_OVER;
+        if (gs->endlessActive) {
+            gs->endlessWave++;
+            gs->phase = PHASE_WAVE_COUNTDOWN;
+            gs->waveCountdown = 5.0f;
+        } else if (gs->currentWave >= MAX_WAVES) {
+            gs->phase = PHASE_VICTORY;
         } else {
             gs->phase = PHASE_WAVE_COUNTDOWN;
             gs->waveCountdown = 5.0f;

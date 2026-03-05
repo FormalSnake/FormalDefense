@@ -8,6 +8,7 @@
 #include "lobby.h"
 #include "chat.h"
 #include "settings.h"
+#include "progress.h"
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -22,11 +23,23 @@
 
 // --- Scene ---
 
-typedef enum { SCENE_MENU, SCENE_MAP_SELECT, SCENE_DIFFICULTY_SELECT, SCENE_LOBBY, SCENE_GAME } Scene;
+typedef enum {
+    SCENE_MENU, SCENE_MAP_SELECT, SCENE_DIFFICULTY_SELECT,
+    SCENE_SHOP, SCENE_PERK_SELECT,
+    SCENE_LOBBY, SCENE_GAME
+} Scene;
 
 // Track whether map select was opened for multiplayer host flow
 static bool mapSelectForMultiplayer = false;
 static Difficulty selectedDifficulty = DIFFICULTY_NORMAL;
+
+// --- Meta-progression state ---
+static PlayerProfile profile;
+static RunModifiers runMods;
+static EndlessState endlessState;
+static int perkOffered[3] = {0};
+static unsigned int perkSeed = 0;
+static bool crystalsSaved = false;
 
 // --- Camera Controller ---
 
@@ -498,6 +511,9 @@ int main(void)
     MapRegistryScan(&mapRegistry, "maps");
     int selectedMapIdx = 0;
 
+    // --- Load player profile ---
+    PlayerProfileLoad(&profile, "profile.fdsave");
+
     // --- Menu state ---
     Map menuMap;
     if (mapRegistry.count > 0) {
@@ -519,7 +535,8 @@ int main(void)
     MapBuildMesh(&gameMapMesh, &map, ps1Shader);
 
     GameState gs;
-    GameStateInit(&gs, DIFFICULTY_NORMAL);
+    RunModifiersInit(&runMods, &profile);
+    GameStateInit(&gs, DIFFICULTY_NORMAL, &runMods);
 
     Enemy enemies[MAX_ENEMIES];
     memset(enemies, 0, sizeof(enemies));
@@ -916,16 +933,8 @@ int main(void)
                     lobbyState.phase = LOBBY_HOST_WAIT;
                     currentScene = SCENE_LOBBY;
                 } else {
-                    // Single-player: init game and start
-                    GameStateInit(&gs, selectedDifficulty);
-                    memset(enemies, 0, sizeof(enemies));
-                    memset(towers, 0, sizeof(towers));
-                    memset(projectiles, 0, sizeof(projectiles));
-                    CameraControllerInit(&camCtrl);
-                    CameraControllerUpdate(&camCtrl, &camera, 0.0f);
-                    selectedTowerType = -1;
-                    selectedTowerIdx = -1;
-                    currentScene = SCENE_GAME;
+                    // Single-player: go to shop
+                    currentScene = SCENE_SHOP;
                 }
             }
 
@@ -940,6 +949,193 @@ int main(void)
                     }
                 }
                 currentScene = SCENE_MAP_SELECT;
+            }
+        } break;
+
+        case SCENE_SHOP: {
+            BeginDrawing();
+            ClearBackground((Color){ 20, 22, 28, 255 });
+
+            const char *shopTitle = "Crystal Shop";
+            int shopTitleW = MeasureText(shopTitle, 36);
+            DrawText(shopTitle, (screenW - shopTitleW) / 2, 20, 36, WHITE);
+
+            // Crystal balance
+            DrawText(TextFormat("Crystals: %d", profile.crystals), screenW - 220, 25, 24, (Color){180,100,255,255});
+
+            // Shop categories
+            const char *catNames[] = { "Stat Boosts", "Tower Unlocks", "Abilities" };
+            int catItems[][6] = {
+                { SHOP_DAMAGE_1, SHOP_DAMAGE_2, SHOP_STARTING_GOLD, SHOP_STARTING_LIVES, SHOP_TOWER_COST, SHOP_GOLD_PER_KILL },
+                { SHOP_TOWER_RANGE, SHOP_UNLOCK_SNIPER, SHOP_UNLOCK_SLOW, SHOP_UNLOCK_LASER, SHOP_UNLOCK_MORTAR, SHOP_UNLOCK_TESLA },
+                { SHOP_UNLOCK_FLAME, SHOP_ABILITY_AIRSTRIKE, SHOP_ABILITY_GOLD_RUSH, SHOP_ABILITY_FORTIFY, -1, -1 },
+            };
+            int catCounts[] = { 6, 6, 4 };
+
+            int shopY = 65;
+            for (int cat = 0; cat < 3; cat++) {
+                DrawText(catNames[cat], 30, shopY, 20, GOLD);
+                shopY += 26;
+
+                for (int ci = 0; ci < catCounts[cat]; ci++) {
+                    int itemID = catItems[cat][ci];
+                    if (itemID < 0) continue;
+                    const ShopItemConfig *si = &SHOP_ITEMS[itemID];
+                    bool purchased = profile.shopPurchased[itemID];
+                    bool canBuy = ShopCanPurchase(&profile, (ShopItemID)itemID);
+
+                    int itemX = 40;
+                    int itemW = screenW - 80;
+                    int itemH = 32;
+                    Rectangle itemRect = { (float)itemX, (float)shopY, (float)itemW, (float)itemH };
+                    bool hover = CheckCollisionPointRec(mouse, itemRect);
+
+                    Color bg = purchased ? (Color){30,50,30,200} :
+                               canBuy && hover ? (Color){50,60,80,255} :
+                               canBuy ? (Color){35,40,50,200} :
+                               (Color){30,30,35,200};
+                    DrawRectangleRec(itemRect, bg);
+                    DrawRectangleLinesEx(itemRect, 1, (Color){60,60,70,200});
+
+                    Color nameCol = purchased ? (Color){100,180,100,255} : canBuy ? WHITE : (Color){100,100,100,255};
+                    DrawText(si->name, itemX + 8, shopY + 4, 16, nameCol);
+                    DrawText(si->description, itemX + 200, shopY + 4, 14, (Color){180,180,180,255});
+
+                    if (purchased) {
+                        DrawText("OWNED", itemX + itemW - 70, shopY + 8, 14, (Color){100,180,100,255});
+                    } else {
+                        Color costCol = canBuy ? (Color){180,100,255,255} : (Color){100,60,60,255};
+                        DrawText(TextFormat("%d", si->cost), itemX + itemW - 60, shopY + 8, 14, costCol);
+                    }
+
+                    // Buy on click
+                    if (!purchased && canBuy && hover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+                        ShopPurchase(&profile, (ShopItemID)itemID);
+                        PlayerProfileSave(&profile, "profile.fdsave");
+                    }
+
+                    shopY += itemH + 2;
+                }
+                shopY += 8;
+            }
+
+            // Continue button
+            int cBtnW = 200, cBtnH = 45;
+            int cBtnX = (screenW - cBtnW) / 2;
+            int cBtnY = screenH - 110;
+            Rectangle contBtn = { (float)cBtnX, (float)cBtnY, (float)cBtnW, (float)cBtnH };
+            bool contHover = CheckCollisionPointRec(mouse, contBtn);
+            DrawRectangleRec(contBtn, contHover ? (Color){60,120,60,255} : (Color){40,80,40,255});
+            DrawRectangleLinesEx(contBtn, 2, (Color){100,200,100,200});
+            const char *contText = "Continue";
+            int contTextW = MeasureText(contText, 24);
+            DrawText(contText, cBtnX + (cBtnW - contTextW) / 2, cBtnY + 11, 24, WHITE);
+
+            // Back button
+            int sBkY = cBtnY + cBtnH + 10;
+            Rectangle shopBackBtn = { (float)cBtnX, (float)sBkY, (float)cBtnW, 40.0f };
+            bool shopBackHover = CheckCollisionPointRec(mouse, shopBackBtn);
+            DrawRectangleRec(shopBackBtn, shopBackHover ? (Color){80,50,50,255} : (Color){55,35,35,255});
+            DrawRectangleLinesEx(shopBackBtn, 2, (Color){180,100,100,200});
+            const char *shopBackText = "Back";
+            int shopBackTextW = MeasureText(shopBackText, 22);
+            DrawText(shopBackText, cBtnX + (cBtnW - shopBackTextW) / 2, sBkY + 9, 22, WHITE);
+
+            EndDrawing();
+
+            if (contHover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+                RunModifiersInit(&runMods, &profile);
+                perkSeed = (unsigned int)(GetTime() * 1000.0);
+                PerkSelectRandom(perkOffered, perkSeed);
+                currentScene = SCENE_PERK_SELECT;
+            }
+            if ((shopBackHover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) || IsKeyPressed(KEY_ESCAPE)) {
+                currentScene = SCENE_DIFFICULTY_SELECT;
+            }
+        } break;
+
+        case SCENE_PERK_SELECT: {
+            BeginDrawing();
+            ClearBackground((Color){ 20, 22, 28, 255 });
+
+            const char *perkTitle = "Choose a Perk";
+            int perkTitleW = MeasureText(perkTitle, 36);
+            DrawText(perkTitle, (screenW - perkTitleW) / 2, 40, 36, WHITE);
+            DrawText("Or skip for no perk", (screenW - MeasureText("Or skip for no perk", 16)) / 2, 82, 16, LIGHTGRAY);
+
+            int cardW = 220, cardH = 140;
+            int gap = 30;
+            int totalW = 3 * cardW + 2 * gap;
+            int startX = (screenW - totalW) / 2;
+            int cardY = 120;
+
+            for (int p = 0; p < 3; p++) {
+                int pid = perkOffered[p];
+                const PerkConfig *pc = &PERK_CONFIGS[pid];
+                int cx = startX + p * (cardW + gap);
+                Rectangle cardRect = { (float)cx, (float)cardY, (float)cardW, (float)cardH };
+                bool hover = CheckCollisionPointRec(mouse, cardRect);
+
+                Color bg = hover ? (Color){50,60,80,255} : (Color){35,40,50,200};
+                DrawRectangleRec(cardRect, bg);
+                DrawRectangleLinesEx(cardRect, 2, hover ? (Color){100,150,220,255} : (Color){60,70,90,200});
+
+                DrawText(pc->name, cx + 10, cardY + 10, 20, WHITE);
+                // Word-wrap description manually (simple approach)
+                DrawText(pc->description, cx + 10, cardY + 40, 14, (Color){200,200,200,255});
+
+                if (pc->hasTradeoff)
+                    DrawText("Trade-off", cx + 10, cardY + cardH - 24, 12, (Color){255,180,80,255});
+                else
+                    DrawText("Pure buff", cx + 10, cardY + cardH - 24, 12, (Color){100,200,100,255});
+
+                if (hover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+                    RunModifiersApplyPerk(&runMods, pid);
+                    // Init game and go
+                    endlessState = (EndlessState){0};
+                    crystalsSaved = false;
+                    GameStateInit(&gs, selectedDifficulty, &runMods);
+                    memset(enemies, 0, sizeof(enemies));
+                    memset(towers, 0, sizeof(towers));
+                    memset(projectiles, 0, sizeof(projectiles));
+                    CameraControllerInit(&camCtrl);
+                    CameraControllerUpdate(&camCtrl, &camera, 0.0f);
+                    selectedTowerType = -1;
+                    selectedTowerIdx = -1;
+                    currentScene = SCENE_GAME;
+                }
+            }
+
+            // Skip button
+            int skipW = 140, skipH = 40;
+            int skipX = (screenW - skipW) / 2;
+            int skipY = cardY + cardH + 30;
+            Rectangle skipBtn = { (float)skipX, (float)skipY, (float)skipW, (float)skipH };
+            bool skipHover = CheckCollisionPointRec(mouse, skipBtn);
+            DrawRectangleRec(skipBtn, skipHover ? (Color){70,60,50,255} : (Color){50,45,40,255});
+            DrawRectangleLinesEx(skipBtn, 2, (Color){150,130,100,200});
+            const char *skipText = "Skip";
+            int skipTextW = MeasureText(skipText, 22);
+            DrawText(skipText, skipX + (skipW - skipTextW) / 2, skipY + 9, 22, WHITE);
+
+            EndDrawing();
+
+            if (skipHover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+                // No perk, start game
+                endlessState = (EndlessState){0};
+                crystalsSaved = false;
+                GameStateInit(&gs, selectedDifficulty, &runMods);
+                memset(enemies, 0, sizeof(enemies));
+                memset(towers, 0, sizeof(towers));
+                memset(projectiles, 0, sizeof(projectiles));
+                CameraControllerInit(&camCtrl);
+                CameraControllerUpdate(&camCtrl, &camera, 0.0f);
+                selectedTowerType = -1;
+                selectedTowerIdx = -1;
+                currentScene = SCENE_GAME;
+            }
+            if (IsKeyPressed(KEY_ESCAPE)) {
+                currentScene = SCENE_SHOP;
             }
         } break;
 
@@ -974,14 +1170,14 @@ int main(void)
                         MapInit(&map);
                     // Send map data to clients
                     NetSendMapData(&netCtx, &map);
-                    GameStateInitMultiplayer(&gs, netCtx.playerCount, (Difficulty)netCtx.selectedDifficulty);
+                    GameStateInitMultiplayer(&gs, netCtx.playerCount, (Difficulty)netCtx.selectedDifficulty, &runMods);
                 } else {
                     // Client: load map by name (may have been saved by MSG_MAP_DATA handler)
                     char localPath[256];
                     snprintf(localPath, sizeof(localPath), "maps/%s.fdmap", netCtx.selectedMap);
                     if (!MapLoad(&map, localPath))
                         MapInit(&map);
-                    GameStateInitMultiplayer(&gs, netCtx.playerCount, (Difficulty)netCtx.selectedDifficulty);
+                    GameStateInitMultiplayer(&gs, netCtx.playerCount, (Difficulty)netCtx.selectedDifficulty, &runMods);
                 }
                 MapBuildMesh(&gameMapMesh, &map, ps1Shader);
                 memset(enemies, 0, sizeof(enemies));
@@ -1054,40 +1250,102 @@ int main(void)
                 canPlace = MapCanPlaceTower(&map, mouseGrid);
         }
 
+        // Build list of unlocked tower types (needed for both input and draw)
+        int unlockedTowers[TOWER_TYPE_COUNT];
+        int unlockedCount = 0;
+        for (int i = 0; i < TOWER_TYPE_COUNT; i++) {
+            if (runMods.towerUnlocked[i])
+                unlockedTowers[unlockedCount++] = i;
+        }
+
         if (gs.phase != PHASE_PAUSED) {
 
         // --- Camera (only when not in UI or chat) ---
         if (!chatActive && (!mouseInUI || IsKeyDown(KEY_W) || IsKeyDown(KEY_S) || IsKeyDown(KEY_A) || IsKeyDown(KEY_D)))
             CameraControllerUpdate(&camCtrl, &camera, dt);
 
+        // --- Ability cooldown ticking ---
+        for (int a = 0; a < ABILITY_COUNT; a++) {
+            if (runMods.abilityTimer[a] > 0.0f)
+                runMods.abilityTimer[a] -= dt;
+        }
+
+        // --- Ability input ---
+        if (!chatActive && gs.phase == PHASE_PLAYING) {
+            // Q = Airstrike: deal 200 damage to all enemies in 3.0 radius at mouse pos
+            if (runMods.abilityUnlocked[ABILITY_AIRSTRIKE] && runMods.abilityTimer[ABILITY_AIRSTRIKE] <= 0.0f
+                && IsKeyPressed(KEY_Q) && mouseOnGround) {
+                for (int j = 0; j < MAX_ENEMIES; j++) {
+                    if (!enemies[j].active) continue;
+                    if (Vector3Distance(mouseGround, enemies[j].worldPos) <= 3.0f) {
+                        enemies[j].hp -= 200.0f;
+                        if (enemies[j].hp <= 0.0f) {
+                            enemies[j].active = false;
+                            int lpi = netCtx.mode != NET_MODE_NONE ? netCtx.localPlayerIndex : 0;
+                            gs.playerGold[lpi] += gs.goldPerKill;
+                            gs.gold = gs.playerGold[0];
+                        }
+                    }
+                }
+                runMods.abilityTimer[ABILITY_AIRSTRIKE] = ABILITY_AIRSTRIKE_COOLDOWN;
+            }
+            // E = Gold Rush: toggle 2x gold for duration
+            if (runMods.abilityUnlocked[ABILITY_GOLD_RUSH] && runMods.abilityTimer[ABILITY_GOLD_RUSH] <= 0.0f
+                && IsKeyPressed(KEY_E) && !runMods.goldRushActive) {
+                runMods.goldRushActive = true;
+                runMods.abilityCooldown[ABILITY_GOLD_RUSH] = ABILITY_GOLD_RUSH_DURATION;
+            }
+            // R = Fortify: +5 lives instantly
+            if (runMods.abilityUnlocked[ABILITY_FORTIFY] && runMods.abilityTimer[ABILITY_FORTIFY] <= 0.0f
+                && IsKeyPressed(KEY_R)) {
+                gs.lives += 5;
+                runMods.abilityTimer[ABILITY_FORTIFY] = ABILITY_FORTIFY_COOLDOWN;
+            }
+        }
+
+        // Gold Rush duration tracking
+        if (runMods.goldRushActive) {
+            runMods.abilityCooldown[ABILITY_GOLD_RUSH] -= dt;
+            if (runMods.abilityCooldown[ABILITY_GOLD_RUSH] <= 0.0f) {
+                runMods.goldRushActive = false;
+                runMods.abilityTimer[ABILITY_GOLD_RUSH] = ABILITY_GOLD_RUSH_COOLDOWN;
+            }
+        }
+
         // --- Bottom bar button clicks ---
         if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && mouse.y >= screenH - BOTTOM_BAR_HEIGHT) {
-            for (int i = 0; i < TOWER_TYPE_COUNT; i++) {
+            for (int i = 0; i < unlockedCount; i++) {
+                int ttype = unlockedTowers[i];
                 int bx = BTN_MARGIN + i * (BTN_WIDTH + BTN_MARGIN);
                 int by = screenH - BOTTOM_BAR_HEIGHT + (BOTTOM_BAR_HEIGHT - BTN_HEIGHT) / 2;
                 Rectangle btnRect = { (float)bx, (float)by, (float)BTN_WIDTH, (float)BTN_HEIGHT };
                 if (CheckCollisionPointRec(mouse, btnRect)) {
-                    int cost = TOWER_CONFIGS[i][0].cost;
+                    int cost = (int)(TOWER_CONFIGS[ttype][0].cost * runMods.towerCostMultiplier);
                     int lpi = netCtx.mode != NET_MODE_NONE ? netCtx.localPlayerIndex : 0;
                     if (gs.playerGold[lpi] >= cost) {
-                        selectedTowerType = i;
+                        selectedTowerType = ttype;
                         selectedTowerIdx = -1;
                     }
                 }
             }
         }
 
-        // --- Tower selection keys ---
-        if (IsKeyPressed(KEY_ONE))   { selectedTowerType = TOWER_CANNON;     selectedTowerIdx = -1; }
-        if (IsKeyPressed(KEY_TWO))   { selectedTowerType = TOWER_MACHINEGUN; selectedTowerIdx = -1; }
-        if (IsKeyPressed(KEY_THREE)) { selectedTowerType = TOWER_SNIPER;     selectedTowerIdx = -1; }
-        if (IsKeyPressed(KEY_FOUR))  { selectedTowerType = TOWER_SLOW;       selectedTowerIdx = -1; }
+        // --- Tower selection keys (1-8 map to unlocked slots) ---
+        {
+            int keys[] = { KEY_ONE, KEY_TWO, KEY_THREE, KEY_FOUR, KEY_FIVE, KEY_SIX, KEY_SEVEN, KEY_EIGHT };
+            for (int i = 0; i < unlockedCount && i < 8; i++) {
+                if (IsKeyPressed(keys[i])) {
+                    selectedTowerType = unlockedTowers[i];
+                    selectedTowerIdx = -1;
+                }
+            }
+        }
 
         // --- Left click in 3D area ---
         if (!mouseInUI && IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && gs.phase != PHASE_OVER) {
             int lpi = netCtx.mode != NET_MODE_NONE ? netCtx.localPlayerIndex : 0;
             if (selectedTowerType >= 0 && canPlace) {
-                int cost = TOWER_CONFIGS[selectedTowerType][0].cost;
+                int cost = (int)(TOWER_CONFIGS[selectedTowerType][0].cost * runMods.towerCostMultiplier);
                 if (gs.playerGold[lpi] >= cost) {
                     if (netCtx.mode == NET_MODE_CLIENT) {
                         NetSendPlaceTower(&netCtx, (TowerType)selectedTowerType, mouseGrid);
@@ -1139,10 +1397,10 @@ int main(void)
         // --- Update game systems (host and single-player only) ---
         if (netCtx.mode != NET_MODE_CLIENT &&
             gs.phase != PHASE_OVER && gs.phase != PHASE_PAUSED) {
-            GameUpdateWave(&gs, enemies, MAX_ENEMIES, &map, dt);
+            GameUpdateWave(&gs, enemies, MAX_ENEMIES, &map, &runMods, dt);
             EnemiesUpdate(enemies, MAX_ENEMIES, &map, &gs, dt);
-            TowersUpdate(towers, MAX_TOWERS, enemies, MAX_ENEMIES, projectiles, MAX_PROJECTILES, &gs, &map, dt);
-            ProjectilesUpdate(projectiles, MAX_PROJECTILES, enemies, MAX_ENEMIES, &gs, dt);
+            TowersUpdate(towers, MAX_TOWERS, enemies, MAX_ENEMIES, projectiles, MAX_PROJECTILES, &gs, &map, &runMods, dt);
+            ProjectilesUpdate(projectiles, MAX_PROJECTILES, enemies, MAX_ENEMIES, &gs, &runMods, dt);
         }
 
         // --- Broadcast snapshots (host only) ---
@@ -1223,7 +1481,7 @@ int main(void)
                     }
                 }
 
-                TowersDraw(towers, MAX_TOWERS, gs.playerCount);
+                TowersDraw(towers, MAX_TOWERS, gs.playerCount, enemies, MAX_ENEMIES);
 
                 // Range indicator for selected tower
                 if (selectedTowerIdx >= 0 && towers[selectedTowerIdx].active) {
@@ -1264,10 +1522,17 @@ int main(void)
         DrawText(TextFormat("Gold: %d", gs.playerGold[localPI]), 10, 7, 20, GOLD);
         DrawText(TextFormat("Lives: %d", gs.lives), 170, 7, 20,
                  gs.lives > 5 ? RED : MAROON);
-        DrawText(TextFormat("Wave: %d/%d", gs.currentWave + 1, MAX_WAVES), 330, 7, 20, WHITE);
+        if (gs.endlessActive)
+            DrawText(TextFormat("Wave: %d (Endless +%d)", gs.currentWave + 1, gs.endlessWave), 330, 7, 20, (Color){180,100,255,255});
+        else
+            DrawText(TextFormat("Wave: %d/%d", gs.currentWave + 1, MAX_WAVES), 330, 7, 20, WHITE);
         {
             const DifficultyConfig *hdc = &DIFFICULTY_CONFIGS[gs.difficulty];
             DrawText(hdc->name, 510, 7, 20, hdc->color);
+        }
+        // Active perk indicator
+        if (runMods.activePerk >= 0 && runMods.activePerk < PERK_COUNT) {
+            DrawText(PERK_CONFIGS[runMods.activePerk].name, 640, 7, 16, (Color){200,180,100,255});
         }
         DrawFPS(screenW - 90, 7);
 
@@ -1278,12 +1543,36 @@ int main(void)
             DrawText(countText, (screenW - tw) / 2, 80, 28, YELLOW);
         }
 
-        // --- Bottom bar (tower buttons) ---
+        // --- Ability HUD (top-right) ---
+        {
+            const char *abilityNames[] = { "Airstrike [Q]", "Gold Rush [E]", "Fortify [R]" };
+            int abX = screenW - 160;
+            int abY = 40;
+            for (int a = 0; a < ABILITY_COUNT; a++) {
+                if (!runMods.abilityUnlocked[a]) continue;
+                bool onCooldown = runMods.abilityTimer[a] > 0.0f;
+                Color abBg = onCooldown ? (Color){40,30,30,200} : (Color){30,40,50,200};
+                DrawRectangle(abX, abY, 150, 28, abBg);
+                DrawRectangleLines(abX, abY, 150, 28, (Color){80,80,100,200});
+                Color abTxt = onCooldown ? (Color){100,80,80,255} : WHITE;
+                DrawText(abilityNames[a], abX + 5, abY + 6, 14, abTxt);
+                if (onCooldown) {
+                    DrawText(TextFormat("%.0fs", runMods.abilityTimer[a]),
+                             abX + 120, abY + 6, 14, (Color){180,80,80,255});
+                } else if (a == ABILITY_GOLD_RUSH && runMods.goldRushActive) {
+                    DrawText("ACTIVE", abX + 100, abY + 6, 12, GOLD);
+                }
+                abY += 32;
+            }
+        }
+
+        // --- Bottom bar (tower buttons — only unlocked) ---
         DrawRectangle(0, screenH - BOTTOM_BAR_HEIGHT, screenW, BOTTOM_BAR_HEIGHT, (Color){ 20, 20, 25, 220 });
-        for (int i = 0; i < TOWER_TYPE_COUNT; i++) {
-            int bx = BTN_MARGIN + i * (BTN_WIDTH + BTN_MARGIN);
+        for (int ui = 0; ui < unlockedCount; ui++) {
+            int i = unlockedTowers[ui];
+            int bx = BTN_MARGIN + ui * (BTN_WIDTH + BTN_MARGIN);
             int by = screenH - BOTTOM_BAR_HEIGHT + (BOTTOM_BAR_HEIGHT - BTN_HEIGHT) / 2;
-            int cost = TOWER_CONFIGS[i][0].cost;
+            int cost = (int)(TOWER_CONFIGS[i][0].cost * runMods.towerCostMultiplier);
             bool affordable = gs.playerGold[localPI] >= cost;
 
             Color btnBg = (selectedTowerType == i) ? (Color){ 80, 120, 80, 255 } :
@@ -1301,7 +1590,7 @@ int main(void)
             DrawText(TextFormat("$%d", cost), bx + 20, by + 24, 14, costCol);
 
             // Keybind hint
-            DrawText(TextFormat("[%d]", i + 1), bx + BTN_WIDTH - 28, by + 28, 12, (Color){120,120,120,255});
+            DrawText(TextFormat("[%d]", ui + 1), bx + BTN_WIDTH - 28, by + 28, 12, (Color){120,120,120,255});
         }
 
         // --- Tower info panel ---
@@ -1333,7 +1622,7 @@ int main(void)
 
             // Upgrade button
             if (st->level < TOWER_MAX_LEVEL - 1) {
-                int upgCost = TOWER_CONFIGS[st->type][st->level + 1].cost;
+                int upgCost = (int)(TOWER_CONFIGS[st->type][st->level + 1].cost * runMods.upgradeCostMultiplier);
                 bool canUpg = gs.playerGold[localPI] >= upgCost;
                 int ubx = px + 8, uby = py + INFO_PANEL_H - 30;
                 int ubw = INFO_PANEL_W - 16, ubh = 24;
@@ -1475,29 +1764,60 @@ int main(void)
             ChatDraw(&chatState, screenW, screenH);
         }
 
-        // --- Game Over Screen ---
-        if (gs.phase == PHASE_OVER) {
+        // --- Game Over / Victory Screen ---
+        if (gs.phase == PHASE_OVER || gs.phase == PHASE_VICTORY) {
             DrawRectangle(0, 0, screenW, screenH, (Color){ 0, 0, 0, 150 });
-            bool won = gs.currentWave >= MAX_WAVES;
+            bool won = (gs.phase == PHASE_VICTORY);
             const char *msg = won ? "VICTORY!" : "GAME OVER";
             Color msgCol = won ? GOLD : RED;
             int msgW = MeasureText(msg, 60);
-            DrawText(msg, (screenW - msgW) / 2, screenH / 2 - 50, 60, msgCol);
+            DrawText(msg, (screenW - msgW) / 2, screenH / 2 - 80, 60, msgCol);
 
+            int totalWaves = gs.endlessActive ? gs.currentWave : gs.currentWave;
             const char *sub = won ?
-                TextFormat("All %d waves cleared!", MAX_WAVES) :
-                TextFormat("Survived to wave %d/%d", gs.currentWave + 1, MAX_WAVES);
+                TextFormat("All %d waves cleared!", gs.endlessActive ? totalWaves : MAX_WAVES) :
+                TextFormat("Survived to wave %d/%d", gs.currentWave + 1,
+                          gs.endlessActive ? gs.currentWave + 1 : MAX_WAVES);
             int subW = MeasureText(sub, 24);
-            DrawText(sub, (screenW - subW) / 2, screenH / 2 + 20, 24, WHITE);
+            DrawText(sub, (screenW - subW) / 2, screenH / 2 - 10, 24, WHITE);
+
+            // Crystal earnings
+            int crystalsEarned = CrystalsCalculate(gs.currentWave, gs.lives, gs.maxLives,
+                                                    (int)gs.difficulty, won);
+            DrawText(TextFormat("Crystals earned: +%d", crystalsEarned),
+                     (screenW - MeasureText(TextFormat("Crystals earned: +%d", crystalsEarned), 22)) / 2,
+                     screenH / 2 + 20, 22, (Color){180,100,255,255});
 
             const char *hint = "Press R to restart | ESC for Main Menu";
             int hintW = MeasureText(hint, 18);
-            DrawText(hint, (screenW - hintW) / 2, screenH / 2 + 60, 18, LIGHTGRAY);
+            DrawText(hint, (screenW - hintW) / 2, screenH / 2 + 55, 18, LIGHTGRAY);
+
+            // Endless mode button (only on first victory, not already endless)
+            int nextBtnY = screenH / 2 + 80;
+            if (won && !gs.endlessActive) {
+                int eBtnW = 220, eBtnH = 40;
+                int eBtnX = (screenW - eBtnW) / 2;
+                Rectangle endlessBtn = { (float)eBtnX, (float)nextBtnY, (float)eBtnW, (float)eBtnH };
+                bool endlessHover = CheckCollisionPointRec(mouse, endlessBtn);
+                DrawRectangleRec(endlessBtn, endlessHover ? (Color){60,60,100,255} : (Color){40,40,70,255});
+                DrawRectangleLinesEx(endlessBtn, 2, (Color){100,100,200,200});
+                const char *endlessText = "Continue (Endless)";
+                int endlessTextW = MeasureText(endlessText, 20);
+                DrawText(endlessText, eBtnX + (eBtnW - endlessTextW) / 2, nextBtnY + 10, 20, WHITE);
+                nextBtnY += eBtnH + 10;
+
+                if (endlessHover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+                    gs.endlessActive = true;
+                    gs.endlessWave = 0;
+                    gs.phase = PHASE_WAVE_COUNTDOWN;
+                    gs.waveCountdown = 5.0f;
+                }
+            }
 
             // Main Menu button
             int mbW = 180, mbH = 40;
             int mbX = (screenW - mbW) / 2;
-            int mbY = screenH / 2 + 95;
+            int mbY = nextBtnY;
             Rectangle menuBtn = { (float)mbX, (float)mbY, (float)mbW, (float)mbH };
             bool menuHover = CheckCollisionPointRec(mouse, menuBtn);
             Color menuBg = menuHover ? (Color){ 80, 80, 100, 255 } : (Color){ 50, 50, 65, 255 };
@@ -1590,8 +1910,21 @@ int main(void)
             }
         }
 
+        // --- Save crystals on game end (once) ---
+        if ((gs.phase == PHASE_OVER || gs.phase == PHASE_VICTORY) && !crystalsSaved) {
+            bool won = (gs.phase == PHASE_VICTORY);
+            int earned = CrystalsCalculate(gs.currentWave, gs.lives, gs.maxLives,
+                                           (int)gs.difficulty, won);
+            profile.crystals += earned;
+            profile.totalRuns++;
+            if (won) profile.totalWins++;
+            PlayerProfileSave(&profile, "profile.fdsave");
+            crystalsSaved = true;
+        }
+
         // --- Restart ---
-        if (gs.phase == PHASE_OVER && IsKeyPressed(KEY_R)) {
+        if ((gs.phase == PHASE_OVER || gs.phase == PHASE_VICTORY) && IsKeyPressed(KEY_R)) {
+            crystalsSaved = false;
             // Reload current map (use name to find path)
             bool reloaded = false;
             for (int i = 0; i < mapRegistry.count; i++) {
@@ -1602,7 +1935,9 @@ int main(void)
             }
             if (!reloaded) MapInit(&map);
             MapBuildMesh(&gameMapMesh, &map, ps1Shader);
-            GameStateInit(&gs, selectedDifficulty);
+            RunModifiersInit(&runMods, &profile);
+            endlessState = (EndlessState){0};
+            GameStateInit(&gs, selectedDifficulty, &runMods);
             memset(enemies, 0, sizeof(enemies));
             memset(towers, 0, sizeof(towers));
             memset(projectiles, 0, sizeof(projectiles));
@@ -1611,12 +1946,20 @@ int main(void)
         }
 
         // --- Back to menu ---
-        if (gs.phase == PHASE_OVER) {
+        if (gs.phase == PHASE_OVER || gs.phase == PHASE_VICTORY) {
             bool goMenu = IsKeyPressed(KEY_ESCAPE);
-            Rectangle menuBtn = { (float)((screenW - 180) / 2), (float)(screenH / 2 + 95), 180.0f, 40.0f };
-            if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && CheckCollisionPointRec(mouse, menuBtn))
-                goMenu = true;
+            // Approximate menu button position (dynamic based on endless)
+            if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+                int mbW = 180, mbH = 40;
+                int mbX = (screenW - mbW) / 2;
+                int approxY = screenH / 2 + 80;
+                if (gs.phase == PHASE_VICTORY && !gs.endlessActive) approxY += 50;
+                Rectangle menuBtn = { (float)mbX, (float)approxY, (float)mbW, (float)mbH };
+                if (CheckCollisionPointRec(mouse, menuBtn))
+                    goMenu = true;
+            }
             if (goMenu) {
+                crystalsSaved = false;
                 if (netCtx.mode != NET_MODE_NONE) {
                     NetContextDestroy(&netCtx);
                     NetShutdown();

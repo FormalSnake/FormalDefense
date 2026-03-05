@@ -6,21 +6,25 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+// Forward declare RunModifiers
+typedef struct RunModifiers RunModifiers;
+
 typedef enum {
     PHASE_PLAYING,
     PHASE_WAVE_COUNTDOWN,
     PHASE_OVER,
     PHASE_PAUSED,
+    PHASE_VICTORY,
 } GamePhase;
 
 #define MAX_WAVE_GROUPS 4
 
-typedef struct {
+typedef struct WaveGroup {
     int enemyType;
     int count;
 } WaveGroup;
 
-typedef struct {
+typedef struct WaveConfig {
     WaveGroup groups[MAX_WAVE_GROUPS];
     int groupCount;
     float spawnInterval;
@@ -54,6 +58,7 @@ extern const DifficultyConfig DIFFICULTY_CONFIGS[DIFFICULTY_COUNT];
 struct GameState {
     int gold;              // Legacy single-player gold (alias for playerGold[0])
     int lives;
+    int maxLives;          // For crystal calculation
     int currentWave;
     GamePhase phase;
     float waveCountdown;
@@ -75,16 +80,24 @@ struct GameState {
     float countMultiplier;
     int goldPerKill;
     uint16_t nextEntitySeq;
+
+    // Endless mode
+    bool endlessActive;
+    int endlessWave;
+
+    // Greed speed multiplier from perk
+    float greedSpeedMult;
 };
 
 extern const WaveConfig WAVE_CONFIGS[MAX_WAVES];
 
-void GameStateInit(struct GameState *gs, Difficulty difficulty);
-void GameStateInitMultiplayer(struct GameState *gs, int playerCount, Difficulty difficulty);
+void GameStateInit(struct GameState *gs, Difficulty difficulty, RunModifiers *mods);
+void GameStateInitMultiplayer(struct GameState *gs, int playerCount, Difficulty difficulty, RunModifiers *mods);
 
 // Forward declare Enemy (defined in entity.h)
 typedef struct Enemy_ Enemy_;
-void GameUpdateWave(struct GameState *gs, void *enemies, int maxEnemies, const Map *map, float dt);
+void GameUpdateWave(struct GameState *gs, void *enemies, int maxEnemies, const Map *map,
+                    RunModifiers *mods, float dt);
 bool GameAllEnemiesDead(const void *enemies, int maxEnemies);
 
 #endif
