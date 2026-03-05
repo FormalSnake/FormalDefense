@@ -22,17 +22,8 @@ typedef struct RunModifiers RunModifiers;
 typedef uint16_t EntityID;
 
 #define ENTITY_ID_NONE 0
-#define ENTITY_TYPE_BITS 2
-#define ENTITY_SEQ_BITS 14
-#define ENTITY_SEQ_MASK ((1 << ENTITY_SEQ_BITS) - 1)
 
-#define ENTITY_TYPE_ENEMY  (0 << ENTITY_SEQ_BITS)
-#define ENTITY_TYPE_TOWER  (1 << ENTITY_SEQ_BITS)
-#define ENTITY_TYPE_PROJ   (2 << ENTITY_SEQ_BITS)
-
-EntityID EntityIDMake(uint16_t typeBits, uint16_t seq);
-uint16_t EntityIDType(EntityID id);
-uint16_t EntityIDSeq(EntityID id);
+EntityID EntityIDMake(uint16_t seq);
 
 // Player colors for multiplayer tower tinting
 extern const Color PLAYER_COLORS[MAX_PLAYERS];

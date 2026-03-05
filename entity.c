@@ -7,19 +7,9 @@
 
 // --- Entity ID ---
 
-EntityID EntityIDMake(uint16_t typeBits, uint16_t seq)
+EntityID EntityIDMake(uint16_t seq)
 {
-    return typeBits | (seq & ENTITY_SEQ_MASK);
-}
-
-uint16_t EntityIDType(EntityID id)
-{
-    return id & ~ENTITY_SEQ_MASK;
-}
-
-uint16_t EntityIDSeq(EntityID id)
-{
-    return id & ENTITY_SEQ_MASK;
+    return seq;
 }
 
 // --- Player Colors ---
@@ -120,7 +110,8 @@ void EnemySpawn(Enemy enemies[], int maxEnemies, EnemyType type, const Map *map,
         if (!enemies[i].active) {
             const EnemyConfig *cfg = &ENEMY_CONFIGS[type];
             float scaledHp = cfg->maxHp * gs->hpMultiplier;
-            EntityID eid = EntityIDMake(ENTITY_TYPE_ENEMY, gs->nextEntitySeq++);
+            EntityID eid = EntityIDMake(gs->nextEntitySeq++);
+            if (gs->nextEntitySeq == 0) gs->nextEntitySeq = 1;
             enemies[i] = (Enemy){
                 .active = true,
                 .id = eid,
@@ -255,7 +246,8 @@ void TowerPlace(Tower towers[], int maxTowers, TowerType type, GridPos pos,
 {
     for (int i = 0; i < maxTowers; i++) {
         if (!towers[i].active) {
-            EntityID tid = EntityIDMake(ENTITY_TYPE_TOWER, gs->nextEntitySeq++);
+            EntityID tid = EntityIDMake(gs->nextEntitySeq++);
+            if (gs->nextEntitySeq == 0) gs->nextEntitySeq = 1;
             towers[i] = (Tower){
                 .active = true,
                 .id = tid,
@@ -597,7 +589,8 @@ void ProjectileSpawn(Projectile projectiles[], int maxProjectiles,
 {
     for (int i = 0; i < maxProjectiles; i++) {
         if (!projectiles[i].active) {
-            EntityID pid = EntityIDMake(ENTITY_TYPE_PROJ, gs->nextEntitySeq++);
+            EntityID pid = EntityIDMake(gs->nextEntitySeq++);
+            if (gs->nextEntitySeq == 0) gs->nextEntitySeq = 1;
             projectiles[i] = (Projectile){
                 .active = true,
                 .id = pid,
