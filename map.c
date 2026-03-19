@@ -1044,3 +1044,46 @@ void MapDraw(const Map *map)
         }
     }
 }
+
+// --- Tree Placement ---
+
+// Simple hash for deterministic per-tile RNG
+static unsigned int TreeHash(unsigned int x, unsigned int z, unsigned int seed)
+{
+    unsigned int h = seed;
+    h ^= x * 2654435761u;
+    h ^= z * 2246822519u;
+    h ^= (h >> 16);
+    h *= 0x45d9f3b;
+    h ^= (h >> 16);
+    return h;
+}
+
+void MapPlaceTrees(TreeInstance *trees, int *count, const Map *map, unsigned int seed)
+{
+    *count = 0;
+    for (int z = 0; z < MAP_HEIGHT && *count < MAX_TREES; z++) {
+        for (int x = 0; x < MAP_WIDTH && *count < MAX_TREES; x++) {
+            if (map->tiles[z][x] != TILE_EMPTY) continue;
+
+            unsigned int h = TreeHash((unsigned int)x, (unsigned int)z, seed);
+            // ~25% chance of a tree
+            if ((h % 100) >= 25) continue;
+
+            float elevY = map->elevation[z][x] * ELEVATION_HEIGHT;
+            // Random offset within tile (avoid edges)
+            float offX = ((float)((h >> 8) % 100) / 100.0f - 0.5f) * 0.5f;
+            float offZ = ((float)((h >> 16) % 100) / 100.0f - 0.5f) * 0.5f;
+
+            TreeInstance *t = &trees[*count];
+            t->position = (Vector3){
+                x * TILE_SIZE + TILE_SIZE * 0.5f + offX,
+                elevY,
+                z * TILE_SIZE + TILE_SIZE * 0.5f + offZ,
+            };
+            t->rotation = (float)(h % 360);
+            t->scale = 0.8f + (float)((h >> 4) % 40) / 100.0f; // 0.8 - 1.2
+            (*count)++;
+        }
+    }
+}

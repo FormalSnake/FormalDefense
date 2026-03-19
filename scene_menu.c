@@ -38,6 +38,14 @@ static void MenuDraw(Scene *scene, void *ctx)
         DrawSkybox(app->menuCamera);
         DrawWater(app->waterShader, GetShaderLocation(app->waterShader, "time"), app->totalTime);
         MapDrawMesh(&app->menuMapMesh);
+        BeginShaderMode(app->ps1Shader);
+            for (int i = 0; i < app->menuTreeCount; i++) {
+                float s = app->menuTrees[i].scale * 0.05f;
+                DrawModelEx(app->treeModel, app->menuTrees[i].position,
+                            (Vector3){0,1,0}, app->menuTrees[i].rotation,
+                            (Vector3){s,s,s}, WHITE);
+            }
+        EndShaderMode();
     EndMode3D();
     EndTextureMode();
 

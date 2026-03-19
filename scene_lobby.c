@@ -48,6 +48,7 @@ static void LobbySceneDraw(Scene *scene, void *ctx)
                 MapInit(&app->map);
         }
         MapBuildMesh(&app->gameMapMesh, &app->map, app->ps1Shader);
+        MapPlaceTrees(app->gameTrees, &app->gameTreeCount, &app->map, 42);
 
         // Each player inits RunModifiers from their own local profile
         RunModifiersInit(&app->runMods, &app->profile);

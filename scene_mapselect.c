@@ -66,6 +66,7 @@ static void MapSelectDraw(Scene *scene, void *ctx)
             if (!MapLoad(&app->map, app->mapRegistry.paths[app->selectedMapIdx]))
                 MapInit(&app->map);
             MapBuildMesh(&app->gameMapMesh, &app->map, app->ps1Shader);
+            MapPlaceTrees(app->gameTrees, &app->gameTreeCount, &app->map, 42);
             SceneManagerTransition(app->sceneManager, SCENE_DIFFICULTY_SELECT);
         }
     }

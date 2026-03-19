@@ -68,4 +68,16 @@ int MapSerialize(const Map *map, char *buf, int bufSize);
 
 void MapRegistryScan(MapRegistry *reg, const char *directory);
 
+// --- Tree placement ---
+
+typedef struct {
+    Vector3 position;
+    float rotation;   // Y-axis rotation for variety
+    float scale;      // slight scale variation
+} TreeInstance;
+
+#define MAX_TREES 128
+
+void MapPlaceTrees(TreeInstance *trees, int *count, const Map *map, unsigned int seed);
+
 #endif

@@ -438,6 +438,10 @@ int main(void)
     Model sphereModel = LoadModelFromMesh(sphereMesh);
     sphereModel.materials[0].shader = ps1Shader;
 
+    Model treeModel = LoadModel("assets/tree.obj");
+    for (int i = 0; i < treeModel.materialCount; i++)
+        treeModel.materials[i].shader = ps1Shader;
+
     // --- Initialize AppContext ---
     AppContext app = {0};
     app.ps1Shader = ps1Shader;
@@ -448,6 +452,7 @@ int main(void)
     app.locResolution = locResolution;
     app.wLocResolution = wLocResolution;
     app.sphereModel = sphereModel;
+    app.treeModel = treeModel;
     app.settings = settings;
     app.selectedDifficulty = DIFFICULTY_NORMAL;
     app.selectedTowerType = -1;
@@ -468,6 +473,7 @@ int main(void)
         MapInit(&app.menuMap);
     }
     MapBuildMesh(&app.menuMapMesh, &app.menuMap, ps1Shader);
+    MapPlaceTrees(app.menuTrees, &app.menuTreeCount, &app.menuMap, 42);
 
     CameraControllerInit(&g_menuCamCtrl);
     g_menuCamCtrl.distance = 22.0f;
@@ -475,6 +481,7 @@ int main(void)
 
     MapInit(&app.map);
     MapBuildMesh(&app.gameMapMesh, &app.map, ps1Shader);
+    MapPlaceTrees(app.gameTrees, &app.gameTreeCount, &app.map, 42);
 
     RunModifiersInit(&app.runMods, &app.profile);
     GameStateInit(&app.gs, DIFFICULTY_NORMAL, &app.runMods);
@@ -547,6 +554,7 @@ int main(void)
     if (skyboxReady) UnloadMesh(skyboxMesh);
     if (waterReady) UnloadMesh(waterMesh);
     UnloadShader(wShader);
+    UnloadModel(treeModel);
     UnloadModel(sphereModel);
     UnloadRenderTexture(app.renderTarget);
     UnloadShader(ps1Shader);

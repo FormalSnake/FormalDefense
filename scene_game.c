@@ -253,6 +253,16 @@ static void GameSceneDraw(Scene *scene, void *ctx)
         DrawWater(app->waterShader, GetShaderLocation(app->waterShader, "time"), app->totalTime);
         MapDrawMesh(&app->gameMapMesh);
 
+        // Draw trees on grass tiles
+        BeginShaderMode(app->ps1Shader);
+            for (int i = 0; i < app->gameTreeCount; i++) {
+                float s = app->gameTrees[i].scale * 0.05f;
+                DrawModelEx(app->treeModel, app->gameTrees[i].position,
+                            (Vector3){0,1,0}, app->gameTrees[i].rotation,
+                            (Vector3){s,s,s}, WHITE);
+            }
+        EndShaderMode();
+
         BeginShaderMode(app->ps1Shader);
             // Batched blob shadows
             {
@@ -657,6 +667,7 @@ static void GameSceneDraw(Scene *scene, void *ctx)
             }
             if (!reloaded) MapInit(&app->map);
             MapBuildMesh(&app->gameMapMesh, &app->map, app->ps1Shader);
+            MapPlaceTrees(app->gameTrees, &app->gameTreeCount, &app->map, 42);
             RunModifiersInit(&app->runMods, &app->profile);
             app->endlessState = (EndlessState){0};
             GameStateInit(&app->gs, app->selectedDifficulty, &app->runMods);
