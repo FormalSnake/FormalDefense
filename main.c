@@ -442,6 +442,10 @@ int main(void)
     for (int i = 0; i < treeModel.materialCount; i++)
         treeModel.materials[i].shader = ps1Shader;
 
+    Model zombieModel = LoadModel("assets/ZombieForTDS.obj");
+    for (int i = 0; i < zombieModel.materialCount; i++)
+        zombieModel.materials[i].shader = ps1Shader;
+
     // --- Initialize AppContext ---
     AppContext app = {0};
     app.ps1Shader = ps1Shader;
@@ -453,6 +457,7 @@ int main(void)
     app.wLocResolution = wLocResolution;
     app.sphereModel = sphereModel;
     app.treeModel = treeModel;
+    app.zombieModel = zombieModel;
     app.settings = settings;
     app.selectedDifficulty = DIFFICULTY_NORMAL;
     app.selectedTowerType = -1;
@@ -554,6 +559,7 @@ int main(void)
     if (skyboxReady) UnloadMesh(skyboxMesh);
     if (waterReady) UnloadMesh(waterMesh);
     UnloadShader(wShader);
+    UnloadModel(zombieModel);
     UnloadModel(treeModel);
     UnloadModel(sphereModel);
     UnloadRenderTexture(app.renderTarget);

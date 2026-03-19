@@ -222,13 +222,26 @@ void EnemiesUpdate(Enemy enemies[], int maxEnemies, const Map *map, GameState *g
     }
 }
 
-void EnemiesDraw(const Enemy enemies[], int maxEnemies, Model sphereModel)
+void EnemiesDraw(const Enemy enemies[], int maxEnemies, Model zombieModel, const Map *map)
 {
     for (int i = 0; i < maxEnemies; i++) {
         if (!enemies[i].active) continue;
         const Enemy *e = &enemies[i];
-        sphereModel.materials[0].maps[MATERIAL_MAP_DIFFUSE].color = e->color;
-        DrawModel(sphereModel, e->worldPos, e->radius, WHITE);
+
+        // Compute facing angle from current path segment
+        float rotAngle = 0.0f;
+        if (e->waypointIndex < map->waypointCount - 1) {
+            Vector3 cur = MapGridToWorldElevated(map, map->waypoints[e->waypointIndex]);
+            Vector3 nxt = MapGridToWorldElevated(map, map->waypoints[e->waypointIndex + 1]);
+            float dx = nxt.x - cur.x;
+            float dz = nxt.z - cur.z;
+            rotAngle = atan2f(dx, dz) * RAD2DEG;
+        }
+
+        Vector3 pos = e->worldPos;
+        pos.y -= e->radius;
+        float scale = 0.006f;
+        DrawModelEx(zombieModel, pos, (Vector3){0,1,0}, rotAngle, (Vector3){scale,scale,scale}, WHITE);
     }
 }
 

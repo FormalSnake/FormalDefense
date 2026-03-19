@@ -21,7 +21,7 @@ typedef struct {
     int rtW, rtH;
     int locResolution, locJitter, locLightDir, locLightColor, locAmbientColor, locColorBands;
     int wLocResolution;
-    Model sphereModel, treeModel;
+    Model sphereModel, treeModel, zombieModel;
     MapMesh menuMapMesh, gameMapMesh;
     TreeInstance menuTrees[MAX_TREES], gameTrees[MAX_TREES];
     int menuTreeCount, gameTreeCount;

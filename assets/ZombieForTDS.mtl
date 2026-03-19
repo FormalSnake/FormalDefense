@@ -1,0 +1,42 @@
+# Blender 5.1.0 MTL File: 'ZombieForTDS.blend'
+# www.blender.org
+
+newmtl Base
+Ns 32.000008
+Ka 1.000000 1.000000 1.000000
+Ks 0.500000 0.500000 0.500000
+Ke 0.000000 0.000000 0.000000
+Ni 1.500000
+d 1.000000
+illum 2
+map_Kd Base_baseColor.jpg
+
+newmtl Base.001
+Ns 32.000008
+Ka 1.000000 1.000000 1.000000
+Ks 1.000000 1.000000 1.000000
+Ke 0.000000 0.000000 0.000000
+Ni 1.500000
+d 1.000000
+illum 2
+map_Kd Base_baseColor.jpg
+
+newmtl Material.001
+Ns 0.000000
+Ka 0.276923 0.276923 0.276923
+Ks 0.500000 0.500000 0.500000
+Ke 0.000000 0.000000 0.000000
+Ni 1.500000
+d 1.000000
+illum 3
+map_Kd everytexture.com-stock-fabric-texture-00165.jpg
+
+newmtl trusi_Mels
+Ns 0.000000
+Ka 1.000000 1.000000 1.000000
+Ks 0.500000 0.500000 0.500000
+Ke 0.000000 0.000000 0.000000
+Ni 1.500000
+d 1.000000
+illum 2
+map_Kd trusi_Mels_baseColor.jpg

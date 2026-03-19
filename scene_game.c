@@ -316,7 +316,7 @@ static void GameSceneDraw(Scene *scene, void *ctx)
                 DrawRangeCircle(rc, range, (Color){ 255, 255, 100, 150 });
             }
 
-            EnemiesDraw(app->enemies, MAX_ENEMIES, app->sphereModel);
+            EnemiesDraw(app->enemies, MAX_ENEMIES, app->zombieModel, &app->map);
             ProjectilesDraw(app->projectiles, MAX_PROJECTILES, app->sphereModel);
         EndShaderMode();
     EndMode3D();
