@@ -256,7 +256,7 @@ static void GameSceneDraw(Scene *scene, void *ctx)
         // Draw trees on grass tiles
         BeginShaderMode(app->ps1Shader);
             for (int i = 0; i < app->gameTreeCount; i++) {
-                float s = app->gameTrees[i].scale * 0.05f;
+                float s = app->gameTrees[i].scale * 0.08f;
                 DrawModelEx(app->treeModel, app->gameTrees[i].position,
                             (Vector3){0,1,0}, app->gameTrees[i].rotation,
                             (Vector3){s,s,s}, WHITE);
